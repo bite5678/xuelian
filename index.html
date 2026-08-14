@@ -1,0 +1,2267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+<title>雪莲-用户管理系统</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://pay.bite5678.fun/payment/payment-client.js?v=20260810-window-lock"></script>
+<script src="https://pay.bite5678.fun/payment/window-payment-flow.js?v=20260810-window-lock"></script>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0b0d; --surface: #111318; --surface2: #181c24; --border: #252c3a; 
+    --accent: #f0a500; --text: #e8ecf4; --text3: #4a5568; --danger: #ff4757; 
+    --success: #2ed573; --warning: #ffa502; --unused: #a78bfa;
+    --success: #2ed573; /* 绿色 */
+    --compact-shell-width: 928px;
+  }
+/* 统计卡片中“有效”数字改为绿色 */
+.stat-card .stat-value[style*="color:var(--active)"] {
+    color: var(--success) !important;
+}
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'JetBrains Mono', 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--text); padding-bottom: 80px; overflow-y: scroll; }
+  
+  .header { position:sticky; top:0; z-index:100; width:min(calc(100% - 48px), var(--compact-shell-width)); max-width:none; margin:0 auto; background: rgba(10,11,13,0.9); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); padding: 10px 20px; display:flex; align-items:center; justify-content:space-between; }
+  .logo { font-family:'Syne',sans-serif; font-weight:800; color: var(--accent); font-size: 1.2rem; }
+  .sync-info { font-size: 10px; color: var(--text3); margin-left: 10px; }
+
+  .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: var(--success); color: #000; padding: 8px 20px; border-radius: 4px; font-weight: bold; font-size: 12px; z-index: 9999; opacity: 0; transition: opacity 0.3s, transform 0.3s; pointer-events: none; box-shadow: 0 4px 15px rgba(46, 213, 115, 0.4); }
+  .toast.show { opacity: 1; transform: translate(-50%, 10px); }
+
+  .stats-bar { display:grid; grid-template-columns:repeat(5, 1fr); gap:10px; padding:20px; width:min(calc(100% - 48px), var(--compact-shell-width)); max-width:none; margin:0 auto; }
+  .stat-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:10px; cursor:pointer; transition: 0.2s; }
+  .stat-card.active { border: 2px solid var(--accent); background: var(--surface2); }
+  .stat-label { font-size:10px; color:var(--text3); }
+  .stat-value { font-family:'Syne',sans-serif; font-size:18px; font-weight: 800; }
+
+  .unused-container { width:min(calc(100% - 48px), var(--compact-shell-width)); max-width:none; margin:0 auto 20px; padding:0 20px; }
+  .unused-box { background: rgba(167, 139, 250, 0.05); border: 1px dashed var(--unused); border-radius: 8px; padding: 12px; }
+  .unused-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .unused-item { background: var(--surface2); border: 1px solid var(--border); padding: 3px 8px; border-radius: 4px; font-size: 11px; display: flex; align-items: center; gap: 6px; }
+
+  .main-content { width:min(calc(100% - 48px), var(--compact-shell-width)); max-width:none; margin:0 auto; padding:0 20px; }
+  .table-wrap { width:fit-content; max-width:100%; background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow-x:auto; -webkit-overflow-scrolling:touch; touch-action:pan-x pan-y pinch-zoom; }
+  table { width:max-content; border-collapse:collapse; table-layout:auto; }
+  .user-table { width:max-content; min-width:0; table-layout:auto; }
+  .user-table th { padding-left:6px; padding-right:6px; }
+  .user-table td { padding-left:6px; padding-right:6px; }
+  th { background:var(--surface2); color:#90ee90; font-size:11px; padding:12px 14px; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; }
+  
+  td { padding:10px 14px; font-size:13px; border-bottom:1px solid var(--border); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .header-stat { color: var(--accent); font-weight: 800; }
+  .header-metric { display:inline-flex; align-items:baseline; gap:0; white-space:nowrap; }
+  .copy-on-click { cursor:copy; }
+  .copy-on-click:hover { background:rgba(240,165,0,0.05); color:var(--accent); }
+  .editable { cursor: pointer; border-bottom: 1px dashed #444; position: relative; touch-action:manipulation; }
+  .editable:hover { background: rgba(240,165,0,0.05); color: var(--accent); }
+  
+  .edit-input { background: #000; border: 1px solid var(--accent); color: #fff; width: 100%; padding: 4px; border-radius: 4px; font-family: inherit; outline: none; }
+  .col-filter { display:block; width:100%; background:#000; border:1px solid var(--border); border-radius:4px; color:var(--text); font-size:10px; padding:3px; margin-top:5px; box-sizing:border-box; }
+  
+  .btn { padding: 6px 12px; border-radius:4px; border:none; cursor:pointer; font-size:11px; font-weight:600; display:inline-flex; align-items:center; justify-content: center; gap:4px; }
+  .btn-sm { padding: 4px 8px; font-size: 10px; }
+  .btn-primary { background:var(--accent); color:#000; }
+  .btn-success { background:var(--success); color:#000; }
+  .btn-ghost { background:transparent; color:var(--text); border:1px solid var(--border); }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+  .row-actions { text-align:center; white-space:nowrap; }
+  .actions-header, .row-actions { width:auto; min-width:60px; }
+  
+  .star-btn { cursor: pointer; font-size: 16px; color: var(--text3); transition: 0.2s; margin-right: 5px; vertical-align: middle; }
+  .star-btn.active { color: var(--warning); text-shadow: 0 0 8px rgba(255,165,2,0.5); }
+
+  .trash-drawer { position: fixed; right: -500px; top: 0; width: 500px; max-width: 95vw; height: 100%; background: var(--surface); border-left: 1px solid var(--border); transition: 0.3s; z-index: 101; padding: 20px; box-shadow: -10px 0 30px rgba(0,0,0,0.8); display: flex; flex-direction: column; }
+  .trash-drawer.open { right: 0; }
+  .trash-list-wrap { flex: 1; overflow-y: auto; margin-top: 10px; }
+  .trash-row { display:grid; grid-template-columns:1.5fr 1fr 1fr .8fr 66px; align-items:center; background:var(--surface2); border:1px solid var(--border); padding:8px 12px; border-radius:6px; margin-bottom:6px; font-size:11px; gap:8px; }
+  .trash-header { display:grid; grid-template-columns:1.5fr 1fr 1fr .8fr 66px; padding:0 12px 8px; color:var(--text3); font-size:10px; gap:8px; }
+  
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; z-index: 100; backdrop-filter: blur(2px); }
+  .overlay.open { display: block; }
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.8); display:none; align-items:center; justify-content:center; z-index:1000; }
+  .modal-overlay.open { display:flex; }
+  #renewalConfirmModal, #actionConfirmModal { z-index:2147483647 !important; position:fixed !important; isolation:isolate; }
+  .modal { background:var(--surface); padding:20px; border-radius:8px; border:1px solid var(--border); }
+  .renewal-confirm-modal { width:min(500px, calc(100vw - 24px)); border-color:rgba(240,165,0,.55); box-shadow:0 18px 60px rgba(0,0,0,.55); }
+  .renewal-confirm-title { color:var(--accent); font-size:17px; margin-bottom:14px; }
+  .renewal-confirm-summary { background:var(--surface2); border:1px solid var(--border); border-radius:7px; padding:13px 15px; }
+  .renewal-confirm-user { color:#fff; font-size:14px; margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid var(--border); }
+  .renewal-confirm-user strong { color:var(--accent); }
+  .renewal-confirm-row { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:6px 0; font-size:13px; }
+  .renewal-confirm-row span { color:#aab2c2; }
+  .renewal-confirm-row strong { color:#fff; font-weight:600; }
+  .renewal-confirm-row.next strong, .renewal-confirm-row.amount strong { color:var(--accent); }
+  .bit-link-btn { border-color:#3b82f6; color:#93c5fd; min-width:126px; white-space:nowrap; }
+  .bit-link-btn.ok { border-color:var(--success); color:var(--success); }
+  .bit-link-btn.warn { border-color:var(--warning); color:var(--warning); }
+  .bit-link-btn.error { border-color:var(--danger); color:var(--danger); }
+  .bit-modal { width:min(980px, 96vw); max-height:90vh; display:flex; flex-direction:column; }
+  .bit-route-list { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 14px; }
+  .bit-route { background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:9px 12px; font-size:13px; line-height:1.5; }
+  .bit-route.online { border-color:var(--success); }
+  .bit-route.offline { border-color:var(--danger); }
+  .bit-job-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+  .bit-job-title { font-size:13px; color:#90ee90; font-weight:bold; white-space:nowrap; }
+  .bit-job-count { color:#fff; font-size:11px; font-weight:normal; }
+  .bit-job-search { width:260px; max-width:48%; background:#000; border:1px solid var(--border); border-radius:5px; color:#fff; font-size:13px; padding:7px 10px; outline:none; }
+  .bit-job-search:focus { border-color:var(--accent); }
+  .bit-job-list { overflow-y:auto; overflow-x:hidden; min-height:180px; border:1px solid var(--border); border-radius:6px; }
+  .bit-job-row { display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,1fr) minmax(0,1.12fr) minmax(0,.8fr) minmax(0,1.15fr) minmax(38px,.45fr) minmax(0,1.55fr) minmax(44px,.55fr); width:100%; min-width:0; gap:7px; align-items:center; padding:10px; border-bottom:1px solid var(--border); font-size:12px; line-height:1.35; }
+  .bit-job-row.bit-job-header { position:sticky; top:0; background:var(--surface2); color:#90ee90; z-index:1; }
+  .bit-job-row > div { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bit-job-message { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#fff; }
+  .bit-badge { display:inline-block; padding:2px 6px; border-radius:8px; border:1px solid var(--border); font-size:11px; }
+  .bit-badge.success, .bit-badge.resolved { color:var(--success); border-color:var(--success); }
+  .bit-badge.pending, .bit-badge.processing, .bit-badge.retry_wait, .bit-badge.routing_required { color:var(--warning); border-color:var(--warning); }
+  .bit-badge.needs_attention { color:var(--danger); border-color:var(--danger); }
+  .window-change-header, .actions-header { text-align:center; }
+  .user-table .owner-header, .user-table .owner-cell { width:60px; min-width:60px; max-width:60px; padding-left:5px; padding-right:5px; text-align:center; }
+  .window-header, .window-cell { width:64px; min-width:64px; max-width:64px; padding-left:6px; padding-right:6px; text-align:center; }
+  .user-header, .user-cell { width:96px; min-width:96px; max-width:96px; padding-left:6px; padding-right:6px; }
+  .wechat-header, .wechat-cell { width:90px; min-width:90px; max-width:90px; padding-left:6px; padding-right:6px; }
+  .amount-header, .amount-cell { width:64px; min-width:64px; max-width:64px; padding-left:6px; padding-right:6px; text-align:center; }
+  .status-header, .status-cell { width:76px; min-width:76px; max-width:76px; padding-left:6px; padding-right:6px; text-align:center; }
+  .window-change-header, .window-change-cell { width:60px; min-width:60px; max-width:60px; padding-left:6px; padding-right:6px; text-align:center; }
+  .window-change-header { white-space:nowrap; line-height:normal; }
+  .window-change-cell .btn { display:block; min-width:0; margin:0 auto; padding-left:5px; padding-right:5px; }
+  .operation-log-btn { border-color:var(--unused); color:#c4b5fd; min-width:104px; }
+  .operation-modal { width:min(1180px, 96vw); max-height:90vh; display:flex; flex-direction:column; }
+  .operation-log-list { overflow:auto; min-height:220px; border:1px solid var(--border); border-radius:6px; }
+  .operation-log-row { display:grid; grid-template-columns:145px 90px 85px 70px 75px 165px 105px 105px 110px; gap:9px; align-items:center; min-width:1040px; padding:10px 12px; border-bottom:1px solid var(--border); font-size:12px; line-height:1.35; }
+  .operation-log-row.operation-log-header { position:sticky; top:0; background:var(--surface2); color:#90ee90; z-index:1; }
+  .operation-log-row > div:nth-child(3) { font-size:13px; }
+  .loading-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: none; align-items: center; justify-content: center; color: var(--accent); font-weight: bold; }
+  .loading-mask.nonblocking { inset:9px auto auto 50%; transform:translateX(-50%); padding:8px 14px; border:1px solid var(--border); border-radius:6px; background:rgba(10,11,13,.92); pointer-events:none; font-size:12px; white-space:nowrap; }
+
+  @media (max-width:720px) {
+    html, body { width:100%; max-width:100%; min-width:0; overflow-x:hidden; }
+    .header { width:100%; max-width:100vw; min-width:0; padding:clamp(5px,1.6vw,10px) clamp(4px,1.4vw,8px); gap:clamp(2px,.8vw,8px); justify-content:space-between; flex-wrap:nowrap; overflow:hidden; }
+    .header > div:first-child { display:flex; align-items:center; flex:0 1 auto; min-width:0; overflow:visible; white-space:nowrap; }
+    .header > div:last-child { display:flex; flex:0 1 auto; min-width:0; max-width:none; flex-wrap:nowrap; gap:clamp(1px,.55vw,4px) !important; overflow:visible; padding:0; }
+    .header .logo { flex:0 0 auto; font-size:clamp(8px,2.1vw,12px); white-space:nowrap; }
+    .header .sync-info { display:inline-block; min-width:0; max-width:clamp(48px,16vw,92px); margin-left:clamp(2px,.55vw,6px); font-size:clamp(5px,1.35vw,8px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .header .btn, .header label.btn { flex:0 1 auto; min-width:0 !important; padding:clamp(2px,.65vw,5px) clamp(2px,.75vw,6px); gap:1px; font-size:clamp(5.5px,1.55vw,9px); line-height:1.15; white-space:nowrap; }
+    .stats-bar, .unused-container, .main-content { width:100%; max-width:100%; padding-left:8px; padding-right:8px; }
+    .stats-bar { gap:4px; grid-template-columns:repeat(5,minmax(0,1fr)); }
+    .stat-card { min-width:0; padding:7px 5px; }
+    .stat-label { font-size:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .stat-value { font-size:16px; }
+    .unused-list { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; }
+    .unused-item { min-width:0; padding:3px; gap:2px; font-size:9px; overflow:hidden; }
+    .unused-item span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .table-wrap { width:100%; max-width:100%; overflow-x:auto; }
+    .user-table { width:max-content; min-width:0; }
+    th { padding:10px 4px; }
+    td { padding:9px 4px; }
+    .user-table .col-filter { padding-left:2px; padding-right:2px; }
+    .user-table .btn { padding-left:7px; padding-right:7px; gap:2px; }
+    .user-table .btn-sm { padding-left:5px; padding-right:5px; }
+    .user-table .star-btn { margin-right:2px; }
+    .trash-drawer { right:-100vw; width:100vw; max-width:100vw; padding:12px 8px; }
+    .trash-row, .trash-header { grid-template-columns:minmax(88px,1.3fr) minmax(75px,1fr) 72px 55px 54px; gap:4px; }
+    .trash-row .btn { padding:3px 6px; font-size:9px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toast" id="toastMsg">已复制</div>
+<div class="loading-mask" id="loadingMask">☁️ Supabase 同步中...</div>
+
+<header class="header">
+  <div style="display:flex; align-items:center">
+    <div class="logo">⚡ 雪莲</div>
+    <span class="sync-info" id="syncStatus">连接中...</span>
+  </div>
+  <div style="display:flex; gap:8px;">
+    <button class="btn btn-ghost" onclick="toggleTrash(true)">🗑️ 回收站 (<span id="trashCount">0</span>)</button>
+    <button class="btn btn-ghost operation-log-btn" id="operationLogButton" onclick="openOperationLogModal()">📝 操作日志</button>
+    <button class="btn btn-ghost bit-link-btn" id="bitLinkButton" onclick="openBitLinkModal()">🔗 联动检测中</button>
+  </div>
+</header>
+
+<div class="stats-bar" id="statsBar"></div>
+
+<div class="unused-container">
+  <div class="unused-box">
+    <div style="font-size: 11px; color: var(--unused); font-weight: bold;">🔑 待激活名额</div>
+    <div class="unused-list" id="unusedGrid"></div>
+  </div>
+</div>
+
+<main class="main-content">
+  <div class="table-wrap">
+    <table class="user-table">
+      <thead>
+        <tr>
+          <th width="48">复制</th>
+          <th width="60" class="owner-header">归属</th>
+          <th width="64" class="window-header"><span class="header-metric">窗口<span class="header-stat" id="statWindows">/0</span></span><input type="text" class="col-filter" data-col="windows" oninput="render()"></th>
+          <th width="96" class="user-header"><span class="header-metric">用户<span class="header-stat" id="statUsers">/0</span></span><input type="text" class="col-filter" data-col="username" oninput="render()"></th>
+          <th width="86">密码<input type="text" class="col-filter" data-col="password" oninput="render()"></th>
+          <th width="90" class="wechat-header">微信<input type="text" class="col-filter" data-col="wechat" oninput="render()"></th>
+          <th width="88">激活时间<input type="text" class="col-filter" data-col="activeTime" oninput="render()"></th>
+          <th width="88">到期日期<input type="text" class="col-filter" data-col="expiry" oninput="render()"></th>
+          <th width="64" class="amount-header"><span class="header-metric">金额<span class="header-stat" id="statAmount">/0</span></span><input type="text" class="col-filter" data-col="amount" oninput="render()"></th>
+          <th width="76" class="status-header">状态</th>
+          <th width="60" class="window-change-header">修改窗口</th>
+          <th class="actions-header">操作</th>
+        </tr>
+      </thead>
+      <tbody id="userTableBody"></tbody>
+    </table>
+  </div>
+</main>
+
+<div class="overlay" id="overlay" onclick="toggleTrash(false)"></div>
+<div class="trash-drawer" id="trashDrawer">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
+    <h3 style="color:var(--danger)">🗑️ 回收站 (可续费恢复)</h3>
+    <button class="btn btn-ghost" onclick="toggleTrash(false)">关闭</button>
+  </div>
+  <div class="trash-header">
+    <div>用户名</div><div>微信</div><div>到期(月日)</div><div>金额</div><div>操作</div>
+  </div>
+  <div class="trash-list-wrap" id="trashList"></div>
+</div>
+
+<div class="modal-overlay" id="windowChangeModal" onclick="if(event.target===this)closeWindowChangeModal()">
+  <div class="modal" style="width:min(540px, calc(100vw - 24px));">
+    <h3 style="font-size:16px; color:var(--accent); margin-bottom:8px;">修改窗口</h3>
+    <div id="windowChangeUser" style="font-size:12px; color:#fff; margin-bottom:10px; white-space:pre-line;"></div>
+    <input id="windowChangeInput" class="edit-input" inputmode="numeric" autocomplete="off" placeholder="例如：150、50、+50 或 -50" oninput="updateWindowChangePreview()">
+    <div style="font-size:11px; color:#aab2c2; margin-top:7px;">不带符号＝修改后的总窗口数；带 + / - ＝在当前窗口数上增减。</div>
+    <div id="windowChangePreview" style="font-size:12px; color:var(--accent); margin-top:10px; min-height:18px;"></div>
+    <div class="window-change-warning" style="font-size:21px; color:#fff; line-height:1.55; margin-top:12px;">
+      减少窗口数的时候<br>
+      当前使用窗口数量一定要小于等于减少窗口后的数量，要不然 BitBrowser 任务会失败。
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
+      <button class="btn btn-ghost" onclick="closeWindowChangeModal()">取消</button>
+      <button class="btn btn-primary" id="windowChangeConfirmButton" onclick="confirmWindowChange()">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="renewalConfirmModal" onclick="if(event.target===this)resolveRenewalConfirm(false)" role="dialog" aria-modal="true" aria-labelledby="renewalConfirmTitle">
+  <div class="modal renewal-confirm-modal">
+    <h3 class="renewal-confirm-title" id="renewalConfirmTitle">确认续费30天</h3>
+    <div class="renewal-confirm-summary">
+      <div class="renewal-confirm-user">用户：<strong id="renewalConfirmUsername"></strong><span style="margin-left:14px;">微信：<strong id="renewalConfirmWechat"></strong></span></div>
+      <div class="renewal-confirm-row"><span>当前到期</span><strong id="renewalConfirmCurrentExpiry"></strong></div>
+      <div class="renewal-confirm-row next"><span>续费后到期</span><strong id="renewalConfirmNextExpiry"></strong></div>
+      <div class="renewal-confirm-row" id="renewalConfirmWindowsRow"><span>窗口</span><strong id="renewalConfirmWindows"></strong></div>
+      <div class="renewal-confirm-row amount" id="renewalConfirmAmountRow"><span>需支付</span><strong id="renewalConfirmAmount"></strong></div>
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
+      <button class="btn btn-ghost" onclick="resolveRenewalConfirm(false)">取消</button>
+      <button class="btn btn-primary" id="renewalConfirmButton" onclick="resolveRenewalConfirm(true)">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="actionConfirmModal" onclick="if(event.target===this)resolveActionConfirm(false)" role="dialog" aria-modal="true" aria-labelledby="actionConfirmTitle">
+  <div class="modal renewal-confirm-modal">
+    <h3 class="renewal-confirm-title" id="actionConfirmTitle">操作确认</h3>
+    <div class="renewal-confirm-summary">
+      <div id="actionConfirmMessage" style="color:#fff; font-size:14px; line-height:1.75; white-space:pre-line;"></div>
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
+      <button class="btn btn-ghost" onclick="resolveActionConfirm(false)">取消</button>
+      <button class="btn btn-primary" id="actionConfirmButton" onclick="resolveActionConfirm(true)">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="bitLinkModal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal bit-modal">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+      <div>
+        <h3 style="font-size:17px; color:#93c5fd;">🔗 BitBrowser 联动状态</h3>
+        <div id="bitLinkSummary" style="font-size:12px; color:#fff; margin-top:5px;">正在读取联动状态...</div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-ghost" onclick="refreshBitLinkData()">立即刷新</button>
+        <button class="btn btn-ghost" onclick="closeBitLinkModal()">关闭</button>
+      </div>
+    </div>
+    <div id="bitRouteList" class="bit-route-list"></div>
+    <div class="bit-job-toolbar">
+      <div class="bit-job-title">最近联动任务 <span class="bit-job-count" id="bitJobSearchCount"></span></div>
+      <input type="text" id="bitJobSearchInput" class="bit-job-search" placeholder="🔍 全局搜索：员工号 / 微信 / 动作 / 日期 / 结果..." autocomplete="off" oninput="renderBitIntegration()">
+    </div>
+    <div id="bitJobList" class="bit-job-list"></div>
+    <div style="font-size:12px; color:#fff; margin-top:10px; line-height:1.6;">
+      联动状态自动刷新；本页仅显示当前归属的员工号任务。
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="operationLogModal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal operation-modal">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px;">
+      <div>
+        <h3 style="font-size:17px; color:#c4b5fd;">📝 操作日志</h3>
+        <div style="font-size:12px; color:#fff; margin-top:5px;">仅记录从本功能上线后的激活和续费操作，不回填历史。</div>
+      </div>
+      <button class="btn btn-ghost" onclick="closeOperationLogModal()">关闭</button>
+    </div>
+    <div class="bit-job-toolbar">
+      <div class="bit-job-title">激活 / 续费 <span class="bit-job-count" id="operationLogSearchCount"></span></div>
+      <input type="text" id="operationLogSearchInput" class="bit-job-search" placeholder="🔍 搜索：员工号 / 操作 / 窗口 / 金额 / 日期..." autocomplete="off" oninput="renderOperationLogs()">
+    </div>
+    <div id="operationLogList" class="operation-log-list"></div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://xlmnfzocrlqvbzzrdshr.supabase.co'; 
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsbW5mem9jcmxxdmJ6enJkc2hyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5ODMyMjAsImV4cCI6MjA5MDU1OTIyMH0.Pvhl7JTz-FmOZ6J_aT8kBRve3ZrjOIIVVekr4jTZXUM';
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const STORAGE_KEY = 'uf_v45_db';
+const ROW_ID = 1; 
+
+const DEFAULT_WINDOWS = '100';
+const DEFAULT_AMOUNT = '30';
+const DEFAULT_PWD = '123456';
+const TARGET_ORG = '雪莲';
+const PAYMENT_TENANT = 'xuelian';
+const PAYMENT_API_BASE = 'https://pay.bite5678.fun/payment-api/index.php';
+const WINDOW_CHANGE_BASE_CENTS = 3000;
+
+function recordMonthlyAmountCents(record, allowZero = false) {
+    const raw = String(record?.amount ?? '').trim();
+    if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) return null;
+    const cents = Math.round(Number(raw) * 100);
+    if (!Number.isSafeInteger(cents) || cents < (allowZero ? 0 : 1)) return null;
+    return cents;
+}
+
+function formatMoneyCents(cents) {
+    return (Number(cents) / 100).toFixed(2);
+}
+
+function validRenewalPriceOrAlert(record) {
+    const cents = recordMonthlyAmountCents(record);
+    if (cents === null) {
+        alert('❌ 当前金额无效，请先联系管理员修正金额。');
+        return null;
+    }
+    return cents / 100;
+}
+const BIT_CONNECTOR_OFFLINE_MS = 60000;
+const BIT_CONNECTOR_RETENTION_MS = 24 * 60 * 60 * 1000;
+const BIT_CONNECTOR_PRUNABLE_TASK_STATUSES = new Set(['routing_required', 'pending', 'processing', 'retry_wait', 'needs_attention']);
+const BIT_WINDOW_QUOTA_ACTION = 'set_window_quota';
+const BIT_WINDOW_ACTIVE_STATUSES = new Set(['routing_required','pending','processing','retry_wait','needs_attention']);
+const BIT_PENDING_STATUSES = new Set(['routing_required','pending','processing','retry_wait']);
+const BIT_STATUS_LABELS = {
+    routing_required:'等待前缀路由', pending:'待执行', processing:'执行中', retry_wait:'等待重试',
+    success:'已完成', needs_attention:'需人工处理', resolved:'已解决', cancelled:'已取消'
+};
+const BIT_ACTION_LABELS = {
+    disable:'停用员工号', enable:'启用员工号', recover:'恢复员工号', delete:'删除员工号', set_window_quota:'修改窗口数'
+};
+const BIT_RESULT_LABELS = {
+    deleted:'已删除', recovered:'已恢复', disabled:'已停用', enabled:'已启用', window_quota_updated:'窗口数已更新',
+    cancelled_by_user:'用户已取消', resolved_by_newer_task:'已被较新任务解决',
+    superseded_by_newer_task:'已被较新任务替代', window_quota_cancelled_by_delete:'删除员工号时已取消窗口数任务'
+};
+const OPERATION_ACTION_LABELS = { activate:'激活', renew:'续费', window_add:'增加窗口', window_reduce:'减少窗口', window_sync:'BitBrowser窗口同步' };
+
+let db = { users: [], unused: [], trash: [], bitTasks: [], bitConnectors: [], bitInventory: [], bitUsernameRegistry: [], operationLogs: [] };
+let currentFilter = 'all';
+let newlyActivatedId = null;
+let renderedUserOrder = [];
+let _isSaving = false;      // 保存锁，防止并发覆盖
+let _saveTimer = null;      // 防抖定时器
+let _hasPendingSave = false;// 是否有尚未提交的本地修改
+let _isSilentSave = false;
+let _saveRetryTimer = null;
+let _saveRevision = 0;
+let _isSyncing = false;
+let _isSyncingConnectors = false;
+let connectorHeartbeatById = new Map();
+let activeConnectors = [];
+let bitConnectorRoutes = [];
+let bitIntegrationAvailable = null;
+let bitIntegrationMessage = '正在读取联动状态';
+let baseSnapshot = null;
+let lastKnownUpdatedAt = null; // 【乐观锁】云端最后的时间戳版本
+let pendingWindowChangeUserId = null;
+
+async function requestPaidOperation(operation, itemIds, title, options = {}) {
+    if (!globalThis.BitPayment) {
+        alert('❌ 支付组件没有加载，请检查 payment/payment-client.js 是否已上传。');
+        return null;
+    }
+    try {
+        return await BitPayment.checkout({
+            tenant: PAYMENT_TENANT,
+            operation,
+            itemIds,
+            title,
+            apiBaseUrl: PAYMENT_API_BASE,
+            ...options
+        });
+    } catch (error) {
+        console.error('[payment] checkout failed', error);
+        if (options.paymentIntentId) alert(`窗口付款订单暂时无法继续：\n${error?.message || error}\n\n订单锁仍会保留，确认状态后可用相同窗口数继续。`);
+        return null;
+    }
+}
+
+function paidLogDetails(payment, details = {}) {
+    return { ...details, ...(globalThis.BitPayment ? BitPayment.logDetails(payment) : {}) };
+}
+
+function paymentAlreadyApplied(payment, recordId, action) {
+    if (!payment?.orderNo) return false;
+    return (db.operationLogs || []).some(log =>
+        String(log?.paymentOrderNo || '') === String(payment.orderNo) &&
+        String(log?.sourceRecordId || '') === String(recordId || '') &&
+        String(log?.action || '') === String(action || '')
+    );
+}
+
+async function waitForPaidSave(timeoutMs = 30000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (!_isSaving && _hasPendingSave) {
+            clearTimeout(_saveTimer);
+            _saveTimer = null;
+            await _doSaveToCloud();
+        }
+        if (!_isSaving && !_hasPendingSave) return true;
+        await new Promise(resolve => setTimeout(resolve, 120));
+    }
+    return false;
+}
+
+async function completePaidOperation(payment, result) {
+    const saved = await waitForPaidSave();
+    if (!saved) {
+        alert('✅ 已确认付款，但云端数据暂未保存成功。请不要重复付款，保持页面打开并检查网络。');
+        return false;
+    }
+    try {
+        await BitPayment.complete(payment, result || {});
+        return true;
+    } catch (error) {
+        console.error('[payment] completion failed', error);
+        alert('✅ 业务数据已保存，但支付订单收尾失败。请不要重复付款，稍后继续原操作或联系管理员核对订单号：' + payment.orderNo);
+        return false;
+    }
+}
+ 
+function activeWindowPaymentLock(record, nowMs = Date.now()) {
+    return globalThis.BitWindowPayment ? BitWindowPayment.activeLock(record, nowMs) : null;
+}
+
+function mergeWindowPaymentLocks(localLock, remoteLock) {
+    const isObject = value => value && typeof value === 'object';
+    if (!isObject(localLock)) return isObject(remoteLock) ? remoteLock : undefined;
+    if (!isObject(remoteLock)) return localLock;
+    if (String(localLock.id || '') !== String(remoteLock.id || '')) {
+        const localCreated = Date.parse(localLock.createdAt || localLock.statusUpdatedAt || '') || 0;
+        const remoteCreated = Date.parse(remoteLock.createdAt || remoteLock.statusUpdatedAt || '') || 0;
+        return localCreated >= remoteCreated ? localLock : remoteLock;
+    }
+    const priority = lock => ({
+        failed:1, expired:1, creating:2, pending:3,
+        applying:4, paid_pending:5, completed:6
+    }[String(lock?.status || '')] || 0);
+    const localPriority = priority(localLock);
+    const remotePriority = priority(remoteLock);
+    const localTime = Date.parse(localLock.statusUpdatedAt || localLock.updatedAt || '') || 0;
+    const remoteTime = Date.parse(remoteLock.statusUpdatedAt || remoteLock.updatedAt || '') || 0;
+    const preferred = localPriority > remotePriority || (localPriority === remotePriority && localTime >= remoteTime)
+        ? localLock : remoteLock;
+    const other = preferred === localLock ? remoteLock : localLock;
+    return { ...other, ...preferred };
+}
+
+function paidWindowSettlementPlan(record, pricing) {
+    if (!globalThis.BitWindowPayment) throw new Error('窗口付款流程组件没有加载。');
+    return BitWindowPayment.settlementPlan(record, pricing, WINDOW_CHANGE_BASE_CENTS);
+}
+
+function findWindowPaymentRecord(recordId) {
+    return db.users.find(item => String(item.id) === String(recordId) && isTargetOwnerRecord(item)) || null;
+}
+
+async function refreshWindowPaymentCloud() {
+    const deadline = Date.now() + 30000;
+    while ((_isSaving || _hasPendingSave || _isSyncing) && Date.now() < deadline) {
+        if (!_isSaving && _hasPendingSave) await waitForPaidSave(Math.max(1000, deadline - Date.now()));
+        else await new Promise(resolve => setTimeout(resolve, 120));
+    }
+    if (_isSaving || _hasPendingSave || _isSyncing) throw new Error('云端仍在同步，请保持页面打开后重试。');
+    await syncFromCloud(false);
+}
+
+const windowPaymentFlow = globalThis.BitWindowPayment ? BitWindowPayment.create({
+    tenant: PAYMENT_TENANT,
+    baseCents: WINDOW_CHANGE_BASE_CENTS,
+    getRecord: findWindowPaymentRecord,
+    save: silent => saveToCloud(silent),
+    waitForSave: waitForPaidSave,
+    sync: refreshWindowPaymentCloud,
+    render,
+    enqueueQuota: async (record, targetWindows) => enqueueWindowQuotaTask(record, targetWindows),
+    recordLog: recordOperationLog,
+    paidLogDetails,
+    isPaymentApplied: paymentAlreadyApplied,
+    completePayment: completePaidOperation
+}) : null;
+
+async function acquireWindowPaymentLock(record, quote) {
+    if (!windowPaymentFlow) throw new Error('窗口付款流程组件没有加载，请刷新页面后重试。');
+    return windowPaymentFlow.acquire(record, quote);
+}
+
+function windowPaymentCheckoutOptions(recordId, lock) {
+    if (!windowPaymentFlow) throw new Error('窗口付款流程组件没有加载，请刷新页面后重试。');
+    return {
+        paymentIntentId: String(lock.id || ''),
+        ...windowPaymentFlow.callbacks(recordId, lock.id)
+    };
+}
+
+async function applyPaidWindowChange(payment, recordId) {
+    if (!windowPaymentFlow) throw new Error('窗口付款流程组件没有加载，请刷新页面后重试。');
+    return windowPaymentFlow.applyPaid(payment, recordId);
+}
+
+let _autoResumingPaidOrders = false;
+
+// 已付款但未核销的窗口订单自动补核销：付款成功后页面崩溃/断网/关闭时，
+// 锁停留在 paid_pending，重新打开页面或下次同步后自动继续核销并下发额度任务，
+// 无需人工在弹窗里手动确认。
+async function autoResumePendingPaidOrders() {
+    if (_autoResumingPaidOrders) return;
+    if (_isSaving || _hasPendingSave || _isSyncing) return;
+    _autoResumingPaidOrders = true;
+    try {
+        const record = db.users.find(item => isTargetOwnerRecord(item) && (() => {
+            const lock = activeWindowPaymentLock(item);
+            return lock && lock.status === 'paid_pending' && lock.businessApplied;
+        })()) || null;
+        if (!record) return;
+        const lock = activeWindowPaymentLock(record);
+        if (!lock || lock.status !== 'paid_pending' || !lock.businessApplied) return;
+        if (paymentAlreadyApplied({ orderNo: lock.orderNo }, record.id, 'add_windows')) return;
+        const payment = await requestPaidOperation(
+            'add_windows',
+            [record.id],
+            `雪莲 · ${record.username} · 继续核销窗口订单`,
+            {
+                windowDelta: Number(lock.windowDelta),
+                pricingContext: `${lock.baseWindows}|${lock.currentAmountCents}|${lock.expiry}|${lock.pricingDate}`,
+                ...windowPaymentCheckoutOptions(record.id, lock)
+            }
+        );
+        if (!payment) return;
+        const result = await applyPaidWindowChange(payment, record.id);
+        if (result?.completed) {
+            const statusEl = document.getElementById('syncStatus');
+            if (statusEl) statusEl.innerText = '✅ 已自动补核销已付款窗口订单';
+            render();
+        }
+    } catch (error) {
+        console.error('[payment] 自动补核销未完成，将在下次同步时重试:', error);
+    } finally {
+        _autoResumingPaidOrders = false;
+    }
+}
+
+function parseWindowChangeInput(value, currentWindows) {
+    const raw = String(value ?? '').trim();
+    const current = Number(currentWindows);
+    if (!Number.isSafeInteger(current) || current < 0 || !/^(?:[+-]\d+|\d+)$/.test(raw)) return null;
+    const entered = Number(raw);
+    if (!Number.isSafeInteger(entered)) return null;
+    const mode = /^[+-]/.test(raw) ? 'relative' : 'absolute';
+    const targetWindows = mode === 'relative' ? current + entered : entered;
+    if (!Number.isSafeInteger(targetWindows) || targetWindows < 0) return null;
+    return { mode, targetWindows, delta: targetWindows - current };
+}
+
+function dateOnlyUtcMs(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? '').trim());
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const timestamp = Date.UTC(year, month - 1, day);
+    const parsed = new Date(timestamp);
+    if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return null;
+    return timestamp;
+}
+
+function remainingWindowServiceDays(expiryDateStr, todayDateStr = getBeijingDateStr()) {
+    const expiryMs = dateOnlyUtcMs(expiryDateStr);
+    const todayMs = dateOnlyUtcMs(todayDateStr);
+    if (expiryMs === null || todayMs === null) return null;
+    return Math.max(0, Math.round((expiryMs - todayMs) / 86400000));
+}
+
+function windowChangeMonthlyDeltaCents(delta) {
+    const value = Number(delta);
+    if (!Number.isSafeInteger(value) || value === 0) return null;
+    const cents = Math.round(WINDOW_CHANGE_BASE_CENTS * Math.abs(value) / 100);
+    return Number.isSafeInteger(cents) && cents >= 0 ? cents : null;
+}
+
+function windowChangeFeeCents(delta, remainingDays) {
+    const value = Number(delta);
+    const days = Number(remainingDays);
+    if (!Number.isSafeInteger(value) || value <= 0 || !Number.isSafeInteger(days) || days < 0) return null;
+    const cents = Math.round(WINDOW_CHANGE_BASE_CENTS * value * days / 3000);
+    return Number.isSafeInteger(cents) && cents >= 0 ? cents : null;
+}
+
+function activeWindowChangeTask(record) {
+    const task = (db.bitTasks || []).find(item => String(item.id) === String(record?.windowJobId || ''));
+    return task && BIT_WINDOW_ACTIVE_STATUSES.has(String(task.status || '')) ? task : null;
+}
+
+function openWindowChangeModal(id) {
+    const record = db.users.find(item => String(item.id) === String(id) && isTargetOwnerRecord(item));
+    if (!record) return alert('找不到该用户，请刷新后重试。');
+    pendingWindowChangeUserId = String(id);
+    const paymentLock = activeWindowPaymentLock(record);
+    document.getElementById('windowChangeUser').textContent = `${record.username}：当前 ${record.windows || 0} 窗口，月费 ¥${formatMoneyCents(recordMonthlyAmountCents(record, true) ?? 0)}；微信：${record.wechat || '-'}\n归属：${TARGET_ORG}\n到期 ${record.expiry || '-'}`;
+    document.getElementById('windowChangeInput').value = paymentLock ? String(paymentLock.targetWindows || '') : '';
+    document.getElementById('windowChangePreview').textContent = paymentLock
+        ? (paymentLock.status === 'paid_pending' ? '该订单已付款，确认后将继续补执行并核销。' : '已有付款订单进行中，确认后将继续查询原订单。')
+        : '';
+    document.getElementById('windowChangeModal').classList.add('open');
+    setTimeout(() => document.getElementById('windowChangeInput').focus(), 0);
+}
+
+function closeWindowChangeModal() {
+    document.getElementById('windowChangeModal').classList.remove('open');
+    pendingWindowChangeUserId = null;
+}
+
+function updateWindowChangePreview() {
+    const record = db.users.find(item => String(item.id) === String(pendingWindowChangeUserId));
+    const preview = document.getElementById('windowChangePreview');
+    const currentWindows = Number(record?.windows);
+    const change = parseWindowChangeInput(document.getElementById('windowChangeInput').value, currentWindows);
+    if (!record || !change) {
+        preview.textContent = '请输入最终窗口数（如 150、50），或输入相对变化（如 +50、-50）。';
+        return;
+    }
+    const { targetWindows, delta } = change;
+    if (delta === 0) {
+        preview.textContent = `当前已经是 ${currentWindows} 窗口，无需修改。`;
+        return;
+    }
+    const monthlyDeltaCents = windowChangeMonthlyDeltaCents(delta);
+    const currentAmountCents = recordMonthlyAmountCents(record, true);
+    if (!Number.isSafeInteger(currentWindows) || currentWindows < 0 || targetWindows < 0 || currentAmountCents === null || monthlyDeltaCents === null) {
+        preview.textContent = '当前窗口数、金额或修改后的窗口数无效。';
+        return;
+    }
+    const newAmountCents = currentAmountCents + (delta > 0 ? monthlyDeltaCents : -monthlyDeltaCents);
+    if (newAmountCents < 0) {
+        preview.textContent = '修改后月费不能小于 0 元。';
+        return;
+    }
+    if (delta > 0) {
+        const remainingDays = remainingWindowServiceDays(record.expiry);
+        if (remainingDays === null) {
+            preview.textContent = '到期日期无效，请先联系管理员修正。';
+            return;
+        }
+        if (remainingDays === 0) {
+            preview.textContent = '到期日当天或已过期，已无剩余计费天数，请先续费再增加窗口。';
+            return;
+        }
+        const feeCents = windowChangeFeeCents(delta, remainingDays);
+        if (!Number.isSafeInteger(feeCents) || feeCents < 1) {
+            preview.textContent = '本次增加窗口金额无效或低于最小支付金额，请联系管理员。';
+            return;
+        }
+        preview.textContent = `${currentWindows} → ${targetWindows} 窗口；剩余 ${remainingDays} 天，本次支付 ¥${formatMoneyCents(feeCents)}；新月费 ¥${formatMoneyCents(newAmountCents)}`;
+        return;
+    }
+    preview.textContent = `${currentWindows} → ${targetWindows} 窗口；无需付款、不退款；新月费 ¥${formatMoneyCents(newAmountCents)}`;
+}
+
+async function confirmWindowChange() {
+    const recordId = pendingWindowChangeUserId;
+    if (!recordId) return alert('找不到待修改的用户，请刷新后重试。');
+    if (!(await ensureCloudInitializedForAction())) return false;
+    try { await refreshWindowPaymentCloud(); } catch (error) { return alert(error?.message || error); }
+    let record = db.users.find(item => String(item.id) === String(recordId) && isTargetOwnerRecord(item));
+    if (!record) return alert('找不到该用户，请刷新后重试。');
+    const resumablePayment = activeWindowPaymentLock(record);
+    if (resumablePayment?.status === 'paid_pending' && resumablePayment.businessApplied) {
+        closeWindowChangeModal();
+        try {
+            const payment = await requestPaidOperation(
+                'add_windows',
+                [recordId],
+                `雪莲 · ${record.username} · 继续核销窗口订单`,
+                {
+                    windowDelta: Number(resumablePayment.windowDelta),
+                    pricingContext: `${resumablePayment.baseWindows}|${resumablePayment.currentAmountCents}|${resumablePayment.expiry}|${resumablePayment.pricingDate}`,
+                    ...windowPaymentCheckoutOptions(recordId, resumablePayment)
+                }
+            );
+            if (!payment) return false;
+            const result = await applyPaidWindowChange(payment, recordId);
+            return Boolean(result?.completed);
+        } catch (error) {
+            alert(`已付款订单暂未完成核销：\n${error?.message || error}\n\n请勿重复付款，稍后继续原操作。`);
+            return false;
+        }
+    }
+    const currentWindows = Number(record.windows);
+    const currentPaymentLock = activeWindowPaymentLock(record);
+    const rawActualBeforePayment = record.bitWindowQuota;
+    const actualBeforePayment = Number(rawActualBeforePayment);
+    if (!currentPaymentLock && rawActualBeforePayment !== null && rawActualBeforePayment !== undefined && rawActualBeforePayment !== '' && Number.isSafeInteger(actualBeforePayment) && actualBeforePayment >= 0 && actualBeforePayment !== currentWindows) {
+        return alert(`检测到BitBrowser实际额度为 ${actualBeforePayment}，网页业务窗口为 ${currentWindows}，正在自动对账窗口和月费。请等待约10秒后再发起付款。`);
+    }
+    const change = parseWindowChangeInput(document.getElementById('windowChangeInput').value, currentWindows);
+    if (!change) return alert('请输入最终窗口数（如 150、50），或输入相对变化（如 +50、-50）。');
+    const { targetWindows, delta } = change;
+    if (delta === 0) return alert(`当前已经是 ${currentWindows} 窗口，无需修改。`);
+    const monthlyDeltaCents = windowChangeMonthlyDeltaCents(delta);
+    const currentAmountCents = recordMonthlyAmountCents(record, true);
+    if (!Number.isSafeInteger(currentWindows) || currentWindows < 0 || targetWindows < 0) return alert('修改后的窗口数必须是大于等于 0 的整数。');
+    if (currentAmountCents === null || monthlyDeltaCents === null) return alert('当前金额无效，请联系管理员修正。');
+    const newAmountCents = currentAmountCents + (delta > 0 ? monthlyDeltaCents : -monthlyDeltaCents);
+    if (newAmountCents < 0) return alert('修改后月费不能小于 0 元。');
+    const remainingDays = delta > 0 ? remainingWindowServiceDays(record.expiry) : null;
+    if (delta > 0 && remainingDays === null) return alert('当前到期日期无效，请先联系管理员修正。');
+    if (delta > 0 && remainingDays === 0) return alert('到期日当天或已过期，已无剩余计费天数，请先续费再增加窗口。');
+    const feeCents = delta > 0 ? windowChangeFeeCents(delta, remainingDays) : 0;
+    if (delta > 0 && (!Number.isSafeInteger(feeCents) || feeCents < 1)) return alert('本次增加窗口金额低于最小支付金额，请联系管理员。');
+    const activeTask = activeWindowChangeTask(record);
+    if (activeTask) return alert('该员工号已有修改窗口任务未完成，请等待完成或先在联动状态中取消。');
+
+    if (delta > 0) {
+        try {
+            const pricingDate = getBeijingDateStr();
+            const lock = await acquireWindowPaymentLock(record, {
+                baseWindows: currentWindows,
+                targetWindows,
+                windowDelta: delta,
+                currentAmountCents,
+                newAmountCents,
+                feeCents,
+                expiry: String(record.expiry || '').trim(),
+                pricingDate,
+                remainingDays
+            });
+            closeWindowChangeModal();
+            const pricingContext = `${lock.baseWindows}|${lock.currentAmountCents}|${lock.expiry}|${lock.pricingDate}`;
+            const payment = await requestPaidOperation(
+                'add_windows',
+                [recordId],
+                `雪莲 · ${record.username} · 增加${lock.windowDelta}窗口`,
+                {
+                    windowDelta: Number(lock.windowDelta),
+                    pricingContext,
+                    ...windowPaymentCheckoutOptions(recordId, lock)
+                }
+            );
+            if (!payment) return false;
+            const result = await applyPaidWindowChange(payment, recordId);
+            if (result?.plan?.manualExtraWindows > 0) {
+                alert(`支付订单已完成；BitBrowser实际额度高于订单目标，已保留实际 ${result.plan.finalWindows} 窗口并同步新月费。`);
+            }
+            return Boolean(result?.completed);
+        } catch (error) {
+            const latest = findWindowPaymentRecord(recordId);
+            const orderNo = latest?.windowPaymentLock?.orderNo;
+            alert(`窗口付款处理未完成：\n${error?.message || error}\n\n${orderNo ? '订单已保留为“已付款待处理”，请勿重复付款。订单号：' + orderNo : '尚未进入付款时不会扣款；已有订单时请稍后用相同窗口数继续。'}`);
+            return false;
+        }
+    }
+
+    if (activeWindowPaymentLock(record)) {
+        return alert('该员工号已有付款订单进行中，付款完成或订单超时前不能减少窗口。');
+    }
+    closeWindowChangeModal();
+
+    try {
+        enqueueWindowQuotaTask(record, targetWindows);
+        record.windows = targetWindows;
+        record.windowTarget = targetWindows;
+        record.amount = formatMoneyCents(newAmountCents);
+        recordOperationLog(record, 'window_reduce', { operatedAt:new Date().toISOString(), windows:targetWindows, amount:record.amount });
+        saveToCloud();
+        render();
+        alert(`已提交减少窗口任务：${currentWindows} → ${targetWindows}，无需付款。`);
+        return true;
+    } catch (error) {
+        alert(`减少窗口任务创建失败：\n${error?.message || error}`);
+        return false;
+    }
+}
+
+function normalizeDb(content) {
+    if (typeof content === 'string') {
+        try { content = JSON.parse(content); } catch (e) { content = {}; }
+    }
+    const value = content && typeof content === 'object' ? content : {};
+    return {
+        ...value,
+        users: Array.isArray(value.users) ? value.users : [],
+        unused: Array.isArray(value.unused) ? value.unused : [],
+        trash: Array.isArray(value.trash) ? value.trash : [],
+        bitTasks: Array.isArray(value.bitTasks) ? value.bitTasks : [],
+        bitConnectors: Array.isArray(value.bitConnectors) ? value.bitConnectors : [],
+        bitInventory: Array.isArray(value.bitInventory) ? value.bitInventory : [],
+        bitUsernameRegistry: Array.isArray(value.bitUsernameRegistry) ? value.bitUsernameRegistry : [],
+        operationLogs: Array.isArray(value.operationLogs) ? value.operationLogs : []
+    };
+}
+
+function buildMainDataPayload() {
+    return {
+        users: db.users,
+        unused: db.unused,
+        trash: db.trash,
+        bitTasks: db.bitTasks || [],
+        bitConnectors: db.bitConnectors || [],
+        bitInventory: db.bitInventory || [],
+        bitUsernameRegistry: db.bitUsernameRegistry || [],
+        operationLogs: db.operationLogs || []
+    };
+}
+
+function snapshotMainData(payload = buildMainDataPayload()) {
+    return JSON.parse(JSON.stringify(payload));
+}
+
+function scheduleCloudSave(delay = 500) {
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(() => _doSaveToCloud(), delay);
+}
+
+function getBeijingDateStr() {
+    const now = new Date(Date.now() + 8 * 3600000);
+    const year = now.getUTCFullYear();
+    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(now.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function getBeijingTime() {
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    return new Date(utc + (3600000 * 8));
+}
+
+function getStatus(dateStr) {
+    if (!dateStr || dateStr === '-') return 'expired';
+    const targetDate = new Date(dateStr);
+    targetDate.setHours(0, 0, 0, 0);
+    const today = getBeijingTime();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((targetDate - today) / 86400000);
+    if (diffDays < 0) return 'expired';
+    if (diffDays <= 3) return 'expiring';
+    return 'active';
+}
+
+function newLocalTaskId() {
+    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') return globalThis.crypto.randomUUID();
+    return `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function enqueueWindowQuotaTask(record, targetWindowCount) {
+    if (!Array.isArray(db.bitTasks)) db.bitTasks = [];
+    const current = db.bitTasks.find(task => String(task.id) === String(record.windowJobId || ''));
+    if (current && BIT_WINDOW_ACTIVE_STATUSES.has(String(current.status || '')) && Number(current.targetWindowCount) === targetWindowCount) return current;
+    const now = new Date().toISOString();
+    const inventory = (db.bitInventory || []).find(item =>
+        item?.present !== false && String(item.usernameNorm || item.username || '').trim().toLowerCase() === String(record.username || '').trim().toLowerCase()
+    );
+    const task = {
+        id: newLocalTaskId(),
+        dedupeKey: `window-quota:${record.id}:${targetWindowCount}:${Date.now()}`,
+        sourceRecordId: String(record.id || ''),
+        username: String(record.username || ''),
+        action: BIT_WINDOW_QUOTA_ACTION,
+        status: 'routing_required',
+        targetConnectorId: null,
+        targetPrefix: null,
+        bitUserId: inventory?.bitUserId || null,
+        targetWindowCount,
+        attempts: 0,
+        nextRetryAt: now,
+        claimedBy: null,
+        claimUntil: null,
+        resultCode: '',
+        lastError: '等待连接器按账号前缀领取任务。',
+        createdAt: now,
+        updatedAt: now,
+        completedAt: null
+    };
+    db.bitTasks.unshift(task);
+    record.windowJobId = task.id;
+    record.windowTarget = targetWindowCount;
+    record.windowSyncAction = BIT_WINDOW_QUOTA_ACTION;
+    record.windowSyncStatus = task.status;
+    record.windowSyncMessage = task.lastError;
+    record.windowSyncUpdatedAt = now;
+    return task;
+}
+
+function enqueueRestrictedLifecycleTask(record, action) {
+    if (!['recover', 'disable'].includes(action)) throw new Error('不支持的员工号状态任务。');
+    if (!Array.isArray(db.bitTasks)) db.bitTasks = [];
+    const now = new Date().toISOString();
+    const inventory = (db.bitInventory || []).find(item =>
+        item?.present !== false && String(item.usernameNorm || item.username || '').trim().toLowerCase() === String(record.username || '').trim().toLowerCase()
+    );
+    const task = {
+        id:newLocalTaskId(),
+        dedupeKey:`${action}:${record.id}:${Date.now()}`,
+        sourceRecordId:String(record.id || ''),
+        sourceOwner:String(record.owner || ''),
+        username:String(record.username || ''),
+        action,
+        status:'routing_required',
+        targetConnectorId:null,
+        targetPrefix:null,
+        bitUserId:inventory?.bitUserId || null,
+        targetWindowCount:null,
+        attempts:0,
+        nextRetryAt:now,
+        claimedBy:null,
+        claimUntil:null,
+        resultCode:'',
+        lastError:'等待连接器按账号前缀领取任务。',
+        createdAt:now,
+        updatedAt:now,
+        completedAt:null
+    };
+    db.bitTasks.unshift(task);
+    record.bitJobId=task.id;
+    record.bitSyncAction=action;
+    record.bitSyncStatus=task.status;
+    record.bitSyncMessage=task.lastError;
+    record.bitSyncUpdatedAt=now;
+    return task;
+}
+
+function getRenewedExpiry(record) {
+    const raw = String(record?.expiry || '').trim();
+    const match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    let base = match ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))) : new Date(NaN);
+    if (Number.isNaN(base.getTime())) {
+        const now = getBeijingTime();
+        base = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    }
+    base.setUTCDate(base.getUTCDate() + 30);
+    return base.toISOString().slice(0,10);
+}
+
+function isTargetOwnerRecord(record) {
+    return String(record?.owner || '').trim() === TARGET_ORG;
+}
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+    })[char]);
+}
+
+function findBitTaskSourceRecord(task, state = db) {
+    const sourceId = String(task?.sourceRecordId || task?.source_record_id || '');
+    const username = String(task?.username || '').trim().toLowerCase();
+    if (sourceId) {
+        for (const listName of ['users','unused','trash']) {
+            const record = (state[listName] || []).find(item => String(item?.id || '') === sourceId);
+            if (record) return record;
+        }
+    }
+    if (username) {
+        for (const listName of ['users','unused','trash']) {
+            const record = (state[listName] || []).find(item =>
+                String(item?.username || '').trim().toLowerCase() === username
+            );
+            if (record) return record;
+        }
+    }
+    return null;
+}
+
+function isBitTaskInTargetScope(task, state = db) {
+    const sourceOwner = String(task?.sourceOwner || task?.source_owner || task?.recordSnapshot?.owner || '').trim();
+    if (sourceOwner) return sourceOwner === TARGET_ORG;
+    const record = findBitTaskSourceRecord(task, state);
+    return Boolean(record && isTargetOwnerRecord(record));
+}
+
+function operationLogsInScope() {
+    return (db.operationLogs || []).filter(log => String(log?.owner || '').trim() === TARGET_ORG);
+}
+
+function recordOperationLog(record, action, details = {}) {
+    if (!record || !OPERATION_ACTION_LABELS[action]) return null;
+    if (!Array.isArray(db.operationLogs)) db.operationLogs = [];
+    const log = {
+        id:newLocalTaskId(), sourceRecordId:String(record.id || ''), username:String(record.username || ''),
+        wechat:String(record.wechat || details.wechat || ''),
+        owner:String(record.owner || TARGET_ORG), action,
+        activeDate:String(record.activeTime || details.activeDate || ''),
+        operatedAt:String(details.operatedAt || new Date().toISOString()),
+        expiryBefore:String(details.expiryBefore || ''),
+        expiryAfter:String(details.expiryAfter || record.expiry || ''),
+        windows:String(details.windows ?? record.windows ?? ''),
+        amount:String(details.paymentAmount ?? details.amount ?? record.amount ?? ''),
+        paymentOrderNo:String(details.paymentOrderNo || ''), paymentIntentId:String(details.paymentIntentId || ''),
+        paymentAmount:String(details.paymentAmount || ''),
+        alipayTradeNo:String(details.alipayTradeNo || ''),
+        paymentTenant:String(details.paymentTenant || ''),
+        windowsBefore:String(details.windowsBefore ?? ''), amountBefore:String(details.amountBefore ?? ''),
+        paidTargetWindows:String(details.paidTargetWindows ?? ''), actualWindows:String(details.actualWindows ?? ''),
+        manualExtraWindows:String(details.manualExtraWindows ?? ''), syncSource:String(details.syncSource || '')
+    };
+    db.operationLogs.unshift(log);
+    return log;
+}
+
+function bitBadgeForRecord(record) {
+    const paymentLock = activeWindowPaymentLock(record);
+    if (paymentLock) {
+        const label = paymentLock.status === 'paid_pending' ? '已付款待处理' : '窗口付款中';
+        return `<span class="bit-badge processing" title="${escapeHtml(paymentLock.lastError || paymentLock.orderNo || '')}">💳 ${label}</span>`;
+    }
+    if (record.billingSyncError) return `<span class="bit-badge needs_attention" title="${escapeHtml(record.billingSyncError)}">⚠️ 计费待核对</span>`;
+    const useWindowTask = record.windowJobId && (!record.bitJobId || String(record.windowSyncUpdatedAt || '') >= String(record.bitSyncUpdatedAt || ''));
+    const jobId = useWindowTask ? record.windowJobId : record.bitJobId;
+    if (!jobId) return '';
+    const status = String(useWindowTask ? record.windowSyncStatus : record.bitSyncStatus || '');
+    const message = useWindowTask ? record.windowSyncMessage : record.bitSyncMessage;
+    const prefix = useWindowTask ? '🪟 ' : '🔗 ';
+    return `<span class="bit-badge ${escapeHtml(status)}" title="${escapeHtml(message || '')}">${prefix}${escapeHtml(BIT_STATUS_LABELS[status] || status || '待同步')}</span>`;
+}
+
+function latestRenewLogForTask(task, record) {
+    const sourceId = String(task?.sourceRecordId || task?.source_record_id || record?.id || '');
+    const username = String(task?.username || record?.username || '').trim().toLowerCase();
+    return [...operationLogsInScope()]
+        .filter(log => String(log?.action || '') === 'renew')
+        .filter(log => (sourceId && String(log?.sourceRecordId || '') === sourceId) ||
+            (username && String(log?.username || '').trim().toLowerCase() === username))
+        .sort((a,b) => String(b.operatedAt || '').localeCompare(String(a.operatedAt || '')))[0] || null;
+}
+
+function localizeBitResultText(value) {
+    const text = String(value || '').trim();
+    if (!text) return '-';
+    const direct = BIT_RESULT_LABELS[text.toLowerCase()];
+    if (direct) return direct;
+    return text.replace(/\b(deleted|recovered|disabled|enabled|window_quota_updated|cancelled_by_user|resolved_by_newer_task|superseded_by_newer_task|window_quota_cancelled_by_delete)\b/gi,
+        code => BIT_RESULT_LABELS[code.toLowerCase()] || code);
+}
+
+function bitResultText(task) {
+    const error = String(task?.lastError || task?.last_error || '').trim();
+    if (error) return localizeBitResultText(error);
+    return localizeBitResultText(task?.resultCode || task?.result_code || '');
+}
+
+function formatOperationTime(value) {
+    if (!value) return '-';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN',{hour12:false});
+}
+
+function renderOperationLogs() {
+    const button=document.getElementById('operationLogButton');
+    const list=document.getElementById('operationLogList');
+    const input=document.getElementById('operationLogSearchInput');
+    const count=document.getElementById('operationLogSearchCount');
+    const logs=[...operationLogsInScope()].sort((a,b) => String(b.operatedAt || '').localeCompare(String(a.operatedAt || '')));
+    if (button) button.textContent=`📝 操作日志 (${logs.length})`;
+    if (!list) return;
+    const search=String(input?.value || '').trim().toLowerCase();
+    const visible=search ? logs.filter(log => [log.username,log.wechat,log.owner,OPERATION_ACTION_LABELS[log.action] || log.action,
+        log.windows,log.amount,log.paymentAmount,formatOperationTime(log.operatedAt),log.expiryBefore,log.expiryAfter].join(' ').toLowerCase().includes(search)) : logs;
+    if (count) count.textContent=search ? `（搜索结果 ${visible.length}/${logs.length}）` : `（共 ${logs.length} 条）`;
+    const rows=visible.map(log => `<div class="operation-log-row">
+        <div><b>${escapeHtml(log.username || '-')}</b></div><div>${escapeHtml(log.wechat || '-')}</div><div>${escapeHtml(OPERATION_ACTION_LABELS[log.action] || log.action || '-')}</div>
+        <div>${escapeHtml(log.windows || '-')}</div><div>${(log.amount || log.paymentAmount) ? '¥' + escapeHtml(log.amount || log.paymentAmount) : '-'}</div>
+        <div>${escapeHtml(formatOperationTime(log.operatedAt))}</div>
+        <div>${escapeHtml(log.expiryBefore || '-')}</div><div>${escapeHtml(log.expiryAfter || '-')}</div><div>${escapeHtml(log.owner || '-')}</div>
+    </div>`).join('');
+    list.innerHTML=`<div class="operation-log-row operation-log-header"><div>员工号</div><div>微信</div><div>操作</div><div>窗口</div><div>金额</div><div>操作时间</div><div>续费前到期</div><div>续费后到期</div><div>归属</div></div>` +
+        (rows || `<div style="text-align:center; padding:38px; color:#fff;">${search ? '没有找到匹配日志' : '暂无操作日志'}</div>`);
+}
+
+function openOperationLogModal() {
+    document.getElementById('operationLogModal').classList.add('open');
+    renderOperationLogs();
+}
+
+function closeOperationLogModal() {
+    document.getElementById('operationLogModal').classList.remove('open');
+}
+
+function connectorPrefixes(connector) {
+    if (Array.isArray(connector?.prefixes)) return connector.prefixes.map(String).map(value => value.trim()).filter(Boolean);
+    return String(connector?.accountPrefix || connector?.account_prefix || '')
+        .split(/[,，;；\s]+/).map(value => value.trim()).filter(Boolean);
+}
+
+function visibleConnectorPrefixes(connector) {
+    return connectorPrefixes(connector);
+}
+
+function connectorRetentionReferenceMs(connector) {
+    const raw = connector?.releasedAt || connector?.transferredAt || connector?.updatedAt || connector?.lastSeen || connector?.last_seen || connector?.createdAt;
+    const timestamp = raw ? new Date(raw).getTime() : NaN;
+    return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function isExpiredConnectorRecord(connector, nowMs = Date.now()) {
+    if (!connector || connector.enabled !== false || !Number.isFinite(Number(nowMs))) return false;
+    const referenceMs = connectorRetentionReferenceMs(connector);
+    return referenceMs !== null && Number(nowMs) - referenceMs >= BIT_CONNECTOR_RETENTION_MS;
+}
+
+function pruneExpiredConnectors(nowMs = Date.now()) {
+    const connectors = Array.isArray(db.bitConnectors) ? db.bitConnectors : [];
+    const expiredIds = new Set(connectors.filter(connector => isExpiredConnectorRecord(connector, nowMs)).map(connector => String(connector.id || '')).filter(Boolean));
+    if (!expiredIds.size) return 0;
+    db.bitConnectors = connectors.filter(connector => !expiredIds.has(String(connector?.id || '')));
+    db.bitInventory = (db.bitInventory || []).filter(item => !expiredIds.has(String(item?.connectorId || item?.connector_id || '')));
+    const updatedAt = new Date(Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now()).toISOString();
+    for (const task of db.bitTasks || []) {
+        const targetId = String(task?.targetConnectorId || task?.target_connector_id || '');
+        if (!expiredIds.has(targetId) || !BIT_CONNECTOR_PRUNABLE_TASK_STATUSES.has(String(task.status || ''))) continue;
+        task.status = 'routing_required';
+        task.targetConnectorId = null;
+        if ('target_connector_id' in task) task.target_connector_id = null;
+        task.targetPrefix = null;
+        task.bitUserId = null;
+        task.claimedBy = null;
+        task.claimUntil = null;
+        task.nextRetryAt = updatedAt;
+        task.updatedAt = updatedAt;
+        task.lastError = '原连接器已释放且保留期结束，等待重新路由。';
+    }
+    for (const connectorId of expiredIds) connectorHeartbeatById.delete(connectorId);
+    return expiredIds.size;
+}
+
+function rebuildActiveConnectors() {
+    activeConnectors = (db.bitConnectors || []).filter(connector => connector?.enabled !== false).map(connector => {
+        const heartbeat = connectorHeartbeatById.get(String(connector.id || ''));
+        const lastSeen = heartbeat?.last_seen || connector.lastSeen || connector.last_seen || null;
+        return { ...connector, lastSeen, last_seen:lastSeen };
+    });
+}
+
+function renderBitIntegration() {
+    const button = document.getElementById('bitLinkButton');
+    const summary = document.getElementById('bitLinkSummary');
+    const routeList = document.getElementById('bitRouteList');
+    const jobList = document.getElementById('bitJobList');
+    const searchInput = document.getElementById('bitJobSearchInput');
+    const searchCount = document.getElementById('bitJobSearchCount');
+    if (!button || !summary || !routeList || !jobList) return;
+
+    const now = Date.now();
+    bitConnectorRoutes = activeConnectors.map(connector => ({
+        connector,
+        prefixes:visibleConnectorPrefixes(connector)
+    })).filter(item => item.prefixes.length).map(({ connector, prefixes }) => {
+        const lastSeen = connector.lastSeen || connector.last_seen || null;
+        const seenAt = lastSeen ? new Date(lastSeen).getTime() : 0;
+        return {
+            connector_id:connector.id,
+            display_name:connector.displayName || connector.display_name || '未命名连接器',
+            account_prefix:prefixes.join(','),
+            last_seen:lastSeen,
+            online:connector.enabled !== false && Number.isFinite(seenAt) && now - seenAt < BIT_CONNECTOR_OFFLINE_MS
+        };
+    });
+    bitIntegrationAvailable = true;
+
+    const tasks = [...(db.bitTasks || []).filter(task => isBitTaskInTargetScope(task))].sort((a,b) =>
+        String(b.updatedAt || b.updated_at || '').localeCompare(String(a.updatedAt || a.updated_at || ''))
+    );
+    const searchValue = String(searchInput?.value || '').trim().toLowerCase();
+    const taskViews = tasks.map(task => {
+        const record = findBitTaskSourceRecord(task) || (task?.recordSnapshot && typeof task.recordSnapshot === 'object' ? task.recordSnapshot : null);
+        const wechat = String(record?.wechat || task?.recordSnapshot?.wechat || '-');
+        const status = String(task.status || '');
+        const label = BIT_STATUS_LABELS[status] || status || '-';
+        const rawTarget = task.targetWindowCount ?? task.target_window_count;
+        const actionLabel = String(task.action || '') === BIT_WINDOW_QUOTA_ACTION && Number.isSafeInteger(Number(rawTarget))
+            ? `修改窗口数为${Number(rawTarget)}`
+            : (BIT_ACTION_LABELS[task.action] || task.action || '-');
+        const updated = formatOperationTime(task.updatedAt || task.updated_at);
+        const message = bitResultText(task);
+        const searchable = [task.username,wechat,task.action,actionLabel,status,label,updated,task.attempts,
+            message,task.resultCode,task.result_code,task.targetPrefix,record?.owner].join(' ').toLowerCase();
+        return { task,wechat,status,label,actionLabel,updated,message,searchable };
+    });
+    const visibleTasks = searchValue
+        ? taskViews.filter(view => view.searchable.includes(searchValue))
+        : taskViews;
+    if (searchCount) {
+        searchCount.textContent = searchValue
+            ? `（搜索结果 ${visibleTasks.length}/${tasks.length}）`
+            : `（共 ${tasks.length} 条）`;
+    }
+    const pending = tasks.filter(task => BIT_PENDING_STATUSES.has(String(task.status || ''))).length;
+    const attention = tasks.filter(task => String(task.status || '') === 'needs_attention').length;
+    const online = bitConnectorRoutes.filter(route => route.online).length;
+
+    button.classList.remove('ok','warn','error');
+    if (bitIntegrationAvailable === false) {
+        button.classList.add('error');
+        button.textContent = '🔗 联动未初始化';
+        summary.textContent = bitIntegrationMessage;
+    } else if (attention > 0) {
+        button.classList.add('error');
+        button.textContent = `🔗 需处理 ${attention}`;
+        summary.textContent = `有 ${attention} 个本归属任务需要人工处理，待执行/重试 ${pending} 个。`;
+    } else if (online > 0) {
+        button.classList.add('ok');
+        button.textContent = `🔗 在线 ${online} · 待办 ${pending}`;
+        summary.textContent = `${online}/${bitConnectorRoutes.length} 个连接器在线，任务每10秒刷新。`;
+    } else {
+        button.classList.add('warn');
+        button.textContent = `🔗 离线 · 待办 ${pending}`;
+        summary.textContent = bitConnectorRoutes.length
+            ? '连接器当前离线，任务会保留等待程序上线。'
+            : '尚未读取到已配置前缀的连接器。';
+    }
+
+    routeList.innerHTML = bitConnectorRoutes.length ? bitConnectorRoutes.map(route => {
+        const seen = route.last_seen ? new Date(route.last_seen).toLocaleString('zh-CN',{hour12:false}) : '从未上线';
+        return `<div class="bit-route ${route.online ? 'online' : 'offline'}">
+            ${route.online ? '🟢' : '🔴'} ${escapeHtml(route.display_name)}　前缀：<b>${escapeHtml(route.account_prefix)}</b><br>
+            <span style="color:#fff">最后心跳：${escapeHtml(seen)}</span>
+        </div>`;
+    }).join('') : '<div style="font-size:11px; color:#fff">暂无已配置前缀的连接器</div>';
+
+    const rows = visibleTasks.slice(0,100).map(view => {
+        const { task,wechat,status,label,actionLabel,updated,message } = view;
+        return `<div class="bit-job-row">
+            <div title="${escapeHtml(task.username || '-')}"><b>${escapeHtml(task.username || '-')}</b></div>
+            <div title="${escapeHtml(wechat)}">${escapeHtml(wechat)}</div>
+            <div>${escapeHtml(actionLabel)}</div>
+            <div><span class="bit-badge ${escapeHtml(status)}">${escapeHtml(label)}</span></div>
+            <div>${escapeHtml(updated)}</div>
+            <div>${Number(task.attempts || 0)} 次</div>
+            <div class="bit-job-message" title="${escapeHtml(message)}">${escapeHtml(message)}</div>
+            <div>-</div>
+        </div>`;
+    }).join('');
+    jobList.innerHTML = `<div class="bit-job-row bit-job-header"><div>员工号</div><div>微信</div><div>动作</div><div>状态</div><div>更新时间</div><div>尝试</div><div>结果/错误</div><div>操作</div></div>` +
+        (rows || `<div style="text-align:center; padding:35px; color:#fff; font-size:13px;">${searchValue ? '没有找到匹配的联动任务' : '暂无当前归属的联动任务'}</div>`);
+}
+
+async function syncConnectors(silent = true) {
+    if (_isSyncingConnectors) return;
+    _isSyncingConnectors = true;
+    const pruned = pruneExpiredConnectors();
+    if (pruned && lastKnownUpdatedAt && !_hasPendingSave) saveToCloud(true);
+    try {
+        const { data, error } = await supabaseClient.rpc('get_bit_connector_heartbeats');
+        if (error) throw error;
+        const knownConnectorIds = new Set((db.bitConnectors || []).map(connector => String(connector?.id || '')).filter(Boolean));
+        connectorHeartbeatById = new Map((data || []).filter(row => knownConnectorIds.has(String(row.connector_id || ''))).map(row => [String(row.connector_id || ''),row]));
+        rebuildActiveConnectors();
+        renderBitIntegration();
+    } catch (error) {
+        console.error('[sync] 拉取连接器心跳失败:',error);
+        rebuildActiveConnectors();
+        renderBitIntegration();
+        if (!silent) alert(`连接器心跳同步失败：\n${error?.message || error}`);
+    } finally {
+        _isSyncingConnectors = false;
+    }
+}
+
+function openBitLinkModal() {
+    document.getElementById('bitLinkModal').classList.add('open');
+    renderBitIntegration();
+    syncConnectors(false);
+}
+
+function closeBitLinkModal() {
+    document.getElementById('bitLinkModal').classList.remove('open');
+}
+
+async function refreshBitLinkData() {
+    await syncFromCloud(false);
+    await syncConnectors(false);
+    rebuildActiveConnectors();
+    renderBitIntegration();
+}
+
+async function ensureCloudInitializedForAction() {
+    if (lastKnownUpdatedAt) return true;
+    const deadline=Date.now()+30000;
+    while (_isSyncing && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,100));
+    if (lastKnownUpdatedAt) return true;
+    if (_hasPendingSave && !_isSaving) {
+        clearTimeout(_saveTimer);_saveTimer=null;_hasPendingSave=false;_isSilentSave=false;
+    }
+    await syncFromCloud(false);
+    if (lastKnownUpdatedAt) return true;
+    alert('⚠️ 尚未完成云端初始化，本次操作没有执行。\n请检查网络后再试。');
+    return false;
+}
+
+function hasActiveInlineEdit() {
+    return Boolean(document.querySelector('.inline-edit-input'));
+}
+
+async function syncFromCloud(silent = false) {
+    if (_isSyncing) {
+        if (!silent) document.getElementById('syncStatus').innerText='☁️ 正在完成当前同步...';
+        return;
+    }
+    if (_isSaving || _hasPendingSave) {
+        if (!silent && !lastKnownUpdatedAt && !_isSaving) {
+            clearTimeout(_saveTimer);_saveTimer=null;_hasPendingSave=false;_isSilentSave=false;
+        } else {
+            console.log('[sync] 正在保存或排队保存中，跳过此次同步');
+            return;
+        }
+    }
+    if (silent && hasActiveInlineEdit()) {
+        return;
+    }
+    _isSyncing = true;
+    if (!silent) showLoading(true, { blocking:false });
+    try {
+        // 空闲轮询先只读取更新时间；时间戳未变化时不下载完整 MainData。
+        const { data: versionData, error: versionError } = await supabaseClient.from('MainData')
+            .select('updated_at')
+            .eq('id', ROW_ID)
+            .single();
+        if (versionError) throw versionError;
+
+        if (_isSaving || _hasPendingSave) {
+            console.log('[sync] 心跳请求期间发生本地修改，跳过此次同步');
+            return;
+        }
+
+        const cloudUpdatedAt = versionData?.updated_at || 'FRESH';
+        if (lastKnownUpdatedAt && cloudUpdatedAt === lastKnownUpdatedAt) {
+            const timeStr = getBeijingTime().toLocaleTimeString('zh-CN', {hour12:false});
+            document.getElementById('syncStatus').innerText = `✅ 已是最新 ${timeStr}`;
+            return;
+        }
+
+        // 首次同步或云端版本变化时，才下载完整数据。
+        const { data, error } = await supabaseClient.from('MainData')
+            .select('content, updated_at')
+            .eq('id', ROW_ID)
+            .single();
+        if (error) throw error;
+
+        if (_isSaving || _hasPendingSave) {
+            console.log('[sync] 请求期间发生本地修改，抛弃本次返回版本');
+            return;
+        }
+
+        if (data && data.content) {
+            lastKnownUpdatedAt = data.updated_at || 'FRESH';
+            let parsed = data.content;
+            if (typeof parsed === 'string') {
+                try { parsed = JSON.parse(parsed); } catch(e) { parsed = {}; }
+            }
+            db = normalizeDb(parsed);
+            rebuildActiveConnectors();
+            baseSnapshot = snapshotMainData();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(buildMainDataPayload()));
+            render();
+            const timeStr = getBeijingTime().toLocaleTimeString('zh-CN', {hour12:false});
+            document.getElementById('syncStatus').innerText = `✅ 已同步 ${timeStr}`;
+        }
+    } catch (err) {
+        console.error('[sync] 同步失败:', err);
+        const local = localStorage.getItem(STORAGE_KEY);
+        if (local) {
+            try { db = normalizeDb(JSON.parse(local)); rebuildActiveConnectors(); render(); } catch(e) {}
+        }
+        document.getElementById('syncStatus').innerText = `❌ 同步失败`;
+    } finally {
+        _isSyncing = false;
+        if (!silent) showLoading(false);
+        autoResumePendingPaidOrders();
+    }
+}
+
+function saveToCloud(silent = false) {
+    _isSilentSave = _hasPendingSave ? (_isSilentSave && silent) : Boolean(silent);
+    _saveRevision += 1;
+    _hasPendingSave = true;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(buildMainDataPayload()));
+    document.getElementById('syncStatus').innerText = "☁️ 等待上传...";
+    scheduleCloudSave();
+}
+
+async function _doSaveToCloud() {
+    if (_isSaving) {
+        scheduleCloudSave(120);
+        return;
+    }
+    if (!_hasPendingSave) return;
+    const revisionAtStart = _saveRevision;
+    const isSilent = _isSilentSave;
+    const payload = snapshotMainData();
+    _hasPendingSave = false;
+    _isSilentSave = true;
+    _isSaving = true;
+    const statusEl = document.getElementById('syncStatus');
+    statusEl.innerText = "☁️ 正在上传...";
+
+    if (!lastKnownUpdatedAt) {
+        if (!isSilent) alert("⚠️ 云端尚未初始化，本次修改未上传。\n系统将自动重新同步，同步完成后请重新操作。");
+        statusEl.innerText = "☁️ 正在重新初始化...";
+        clearTimeout(_saveTimer);_saveTimer=null;_hasPendingSave=false;_isSilentSave=false;
+        _isSaving = false;
+        setTimeout(()=>syncFromCloud(false),0);
+        return;
+    }
+
+    const currentNow = new Date().toISOString();
+    let conflictDetected = false;
+    try {
+        let opResult;
+        if (lastKnownUpdatedAt === 'FRESH') {
+            opResult = await supabaseClient.from('MainData').upsert({ id: ROW_ID, content: payload, updated_at: currentNow }).select();
+        } else {
+            opResult = await supabaseClient.from('MainData')
+                .update({ content: payload, updated_at: currentNow })
+                .eq('id', ROW_ID)
+                .eq('updated_at', lastKnownUpdatedAt)
+                .select();
+        }
+        if (opResult.error) throw opResult.error;
+
+        if (lastKnownUpdatedAt !== 'FRESH' && (!opResult.data || opResult.data.length === 0)) {
+            conflictDetected = true;
+            _hasPendingSave = true;
+            if (!isSilent) _isSilentSave = false;
+            statusEl.innerHTML = `<span style="color:var(--warning);font-weight:bold;">☁️ 检测到多人同时操作，正在安全合并...</span>`;
+            const resolved = await autoResolveConflict();
+            if (!resolved && !_saveRetryTimer) {
+                _saveRetryTimer = setTimeout(() => {
+                    _saveRetryTimer = null;
+                    if (_hasPendingSave && !_isSaving) _doSaveToCloud();
+                }, 3000);
+            }
+            return;
+        }
+
+        lastKnownUpdatedAt = currentNow;
+        baseSnapshot = snapshotMainData(payload);
+        if (_saveRevision !== revisionAtStart) {
+            _hasPendingSave = true;
+            statusEl.innerText = "☁️ 前一批已保存，继续上传后续修改...";
+        } else {
+            const timeStr = getBeijingTime().toLocaleTimeString('zh-CN', {hour12:false});
+            statusEl.innerText = `✅ 已同步 ${timeStr}`;
+        }
+        if (_saveRetryTimer) { clearTimeout(_saveRetryTimer); _saveRetryTimer = null; }
+    } catch (err) {
+        console.error('[save] 上传失败:', err);
+        _hasPendingSave = true;
+        if (!isSilent) _isSilentSave = false;
+        statusEl.innerText = "⚠️ 网络失败，仅本地保存（待重试）";
+        if (!_saveRetryTimer) {
+            _saveRetryTimer = setTimeout(() => {
+                _saveRetryTimer = null;
+                if (_hasPendingSave && !_isSaving) _doSaveToCloud();
+            }, 5000);
+        }
+    } finally {
+        _isSaving = false;
+        if (_hasPendingSave && !_saveRetryTimer && !conflictDetected) scheduleCloudSave(80);
+    }
+}
+
+async function autoResolveConflict() {
+    showLoading(true, { blocking:false });
+    let latestData = null;
+    let latestUpdatedAt = null;
+    try {
+        const { data, error } = await supabaseClient.from('MainData').select('content, updated_at').eq('id', ROW_ID).single();
+        if (error) throw error;
+        if (data && data.content) {
+            latestUpdatedAt = data.updated_at;
+            latestData = normalizeDb(data.content);
+        }
+    } catch (err) {
+        console.error('抓取最新数据合并失败', err);
+        showLoading(false);
+        document.getElementById('syncStatus').innerText = '⚠️ 合并失败，本地修改已保留，稍后自动重试';
+        return false;
+    }
+
+    if (!baseSnapshot || !latestData || !latestUpdatedAt) {
+        showLoading(false);
+        document.getElementById('syncStatus').innerText = '⚠️ 缺少合并基线，本地修改已保留';
+        return false;
+    }
+
+    const localData = snapshotMainData();
+    let hasActivationClash = false;
+    const fieldConflicts = [];
+    const fieldLabels = { windows:'窗口数', password:'密码', wechat:'微信', expiry:'到期日期' };
+    const discardedLocalTaskIds = new Set();
+    const MISSING = Symbol('missing');
+
+    const valueOf = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key) ? obj[key] : MISSING;
+    const sameValue = (a, b) => {
+        if (a === MISSING || b === MISSING) return a === b;
+        return JSON.stringify(a) === JSON.stringify(b);
+    };
+    const sameItem = (a, b) => {
+        if (!a || !b) return a === b;
+        return sameValue(a, b);
+    };
+    const activeQuotaTask = (source, record) => {
+        const task = (source.bitTasks || []).find(item => String(item.id) === String(record?.windowJobId || ''));
+        return task && task.action === BIT_WINDOW_QUOTA_ACTION && BIT_WINDOW_ACTIVE_STATUSES.has(String(task.status || '')) ? task : null;
+    };
+
+    function mergeRecordFields(baseRecord, localRecord, remoteRecord) {
+        const result = {};
+        const keys = new Set([
+            ...Object.keys(baseRecord || {}),
+            ...Object.keys(localRecord || {}),
+            ...Object.keys(remoteRecord || {})
+        ]);
+        for (const key of keys) {
+            const baseValue = valueOf(baseRecord, key);
+            const localValue = valueOf(localRecord, key);
+            const remoteValue = valueOf(remoteRecord, key);
+            const localChanged = !sameValue(localValue, baseValue);
+            const remoteChanged = !sameValue(remoteValue, baseValue);
+            let chosen;
+            if (key === 'windowPaymentLock') {
+                chosen = mergeWindowPaymentLocks(localValue === MISSING ? undefined : localValue, remoteValue === MISSING ? undefined : remoteValue);
+                if (chosen !== undefined) result[key] = chosen;
+                continue;
+            }
+            if (localChanged && remoteChanged && !sameValue(localValue, remoteValue)) {
+                const localQuota = key === 'windows' ? activeQuotaTask(localData, localRecord) : null;
+                const remoteQuota = key === 'windows' ? activeQuotaTask(latestData, remoteRecord) : null;
+                chosen = localQuota && !remoteQuota ? localValue : remoteValue;
+                if (localQuota && remoteQuota && String(localQuota.id) !== String(remoteQuota.id)) discardedLocalTaskIds.add(String(localQuota.id));
+                if (fieldLabels[key] && !(key === 'windows' && localQuota && !remoteQuota)) {
+                    fieldConflicts.push({
+                        username: remoteRecord?.username || localRecord?.username || '-',
+                        field: fieldLabels[key]
+                    });
+                }
+            } else if (localChanged) {
+                chosen = localValue;
+            } else {
+                chosen = remoteValue;
+            }
+            if (chosen !== MISSING) result[key] = chosen;
+        }
+        return result;
+    }
+
+    function extractMap(source) {
+        const map = new Map();
+        for (const listName of ['users','unused','trash']) {
+            for (const item of source[listName] || []) {
+                if (item?.id) map.set(String(item.id), { list:listName, data:item });
+            }
+        }
+        return map;
+    }
+
+    const baseMap = extractMap(baseSnapshot);
+    const localMap = extractMap(localData);
+    const remoteMap = extractMap(latestData);
+    const finalIds = new Map();
+    const allIds = new Set([...baseMap.keys(), ...localMap.keys(), ...remoteMap.keys()]);
+    for (const id of allIds) {
+        const baseInfo = baseMap.get(id);
+        const localInfo = localMap.get(id);
+        const remoteInfo = remoteMap.get(id);
+        const localSame = sameItem(localInfo?.data, baseInfo?.data) && localInfo?.list === baseInfo?.list;
+        const remoteSame = sameItem(remoteInfo?.data, baseInfo?.data) && remoteInfo?.list === baseInfo?.list;
+        if (localSame) {
+            if (remoteInfo) finalIds.set(id, remoteInfo);
+        } else if (remoteSame) {
+            if (localInfo) finalIds.set(id, localInfo);
+        } else if (baseInfo?.list === 'unused' && localInfo?.list === 'users' && remoteInfo?.list === 'users') {
+            hasActivationClash = true;
+            if (remoteInfo) finalIds.set(id, remoteInfo);
+        } else if (localInfo && remoteInfo && localInfo.list === remoteInfo.list) {
+            finalIds.set(id, {
+                list: localInfo.list,
+                data: mergeRecordFields(baseInfo?.data || {}, localInfo.data, remoteInfo.data)
+            });
+        } else if (localInfo) {
+            finalIds.set(id, localInfo);
+        } else if (remoteInfo) {
+            finalIds.set(id, remoteInfo);
+        }
+    }
+
+    const mergedDb = normalizeDb({});
+    for (const listName of ['users','unused','trash']) {
+        const added = new Set();
+        for (const item of localData[listName] || []) {
+            const finalInfo = finalIds.get(String(item.id));
+            if (finalInfo?.list === listName) {
+                mergedDb[listName].push(finalInfo.data);
+                added.add(String(item.id));
+            }
+        }
+        for (const item of latestData[listName] || []) {
+            const id = String(item.id);
+            const finalInfo = finalIds.get(id);
+            if (finalInfo?.list === listName && !added.has(id)) mergedDb[listName].push(finalInfo.data);
+        }
+    }
+    const taskMap = new Map();
+    for (const task of [...(latestData.bitTasks || []), ...(localData.bitTasks || [])]) {
+        if (!task?.id || discardedLocalTaskIds.has(String(task.id))) continue;
+        const key = String(task.id);
+        const existing = taskMap.get(key);
+        if (!existing || String(task.updatedAt || '') >= String(existing.updatedAt || '')) taskMap.set(key, task);
+    }
+    mergedDb.bitTasks = [...taskMap.values()];
+    const baseOperationLogIds = new Set((baseSnapshot.operationLogs || []).map(log => String(log?.id || '')).filter(Boolean));
+    const localOperationLogIds = new Set((localData.operationLogs || []).map(log => String(log?.id || '')).filter(Boolean));
+    const remoteOperationLogIds = new Set((latestData.operationLogs || []).map(log => String(log?.id || '')).filter(Boolean));
+    const deletedOperationLogIds = new Set([
+        ...[...baseOperationLogIds].filter(id => !localOperationLogIds.has(id)),
+        ...[...baseOperationLogIds].filter(id => !remoteOperationLogIds.has(id))
+    ]);
+    const operationLogMap = new Map();
+    for (const log of [...(latestData.operationLogs || []), ...(localData.operationLogs || [])]) {
+        if (!log?.id) continue;
+        const key = String(log.id);
+        if (deletedOperationLogIds.has(key)) continue;
+        const existing = operationLogMap.get(key);
+        if (!existing || String(log.operatedAt || '') >= String(existing.operatedAt || '')) operationLogMap.set(key, log);
+    }
+    mergedDb.operationLogs = [...operationLogMap.values()];
+    mergedDb.bitConnectors = (latestData.bitConnectors || []).filter(connector => !isExpiredConnectorRecord(connector));
+    mergedDb.bitInventory = latestData.bitInventory || [];
+    mergedDb.bitUsernameRegistry = latestData.bitUsernameRegistry || [];
+
+    if (hasActivationClash) {
+        db = latestData;
+        baseSnapshot = snapshotMainData(latestData);
+        lastKnownUpdatedAt = latestUpdatedAt;
+        _hasPendingSave = false;
+        render();
+        showLoading(false);
+        alert('⚠️ 该待激活名额已被其他用户抢先激活，本次操作没有覆盖云端数据。页面已刷新到最新状态。');
+        return true;
+    }
+
+    db = mergedDb;
+    baseSnapshot = snapshotMainData(latestData);
+    lastKnownUpdatedAt = latestUpdatedAt;
+    saveToCloud(true);
+    render();
+    showLoading(false);
+
+    if (fieldConflicts.length) {
+        const unique = [...new Set(fieldConflicts.map(item => `${item.username}：${item.field}`))];
+        alert(`⚠️ 检测到其他用户同时修改同一资料：\n\n${unique.join('\n')}\n\n云端先保存的值已保留，本页面没有静默覆盖。其他不冲突的修改仍会继续保存。`);
+    }
+    document.getElementById('syncStatus').innerText = '☁️ 多人修改已安全合并，正在重新上传...';
+    return true;
+}
+
+function displayExpirySortValue(value) {
+    const normalized = String(value ?? '').trim();
+    if (!normalized || normalized === '-') return Number.POSITIVE_INFINITY;
+    const timestamp = new Date(normalized).getTime();
+    return Number.isFinite(timestamp) ? timestamp : Number.POSITIVE_INFINITY;
+}
+
+function compareUsersForDisplay(a, b, priorityId = null) {
+    if (Boolean(a?.isStarred) !== Boolean(b?.isStarred)) return a?.isStarred ? -1 : 1;
+
+    const normalizedPriorityId = priorityId == null ? '' : String(priorityId);
+    if (normalizedPriorityId) {
+        const aIsPriority = String(a?.id ?? '') === normalizedPriorityId;
+        const bIsPriority = String(b?.id ?? '') === normalizedPriorityId;
+        if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
+    }
+
+    const aExpiry = displayExpirySortValue(a?.expiry);
+    const bExpiry = displayExpirySortValue(b?.expiry);
+    if (aExpiry !== bExpiry) return aExpiry - bExpiry;
+
+    const idCompare = String(a?.id ?? '').localeCompare(String(b?.id ?? ''), 'zh-CN', { numeric: true, sensitivity: 'base' });
+    if (idCompare) return idCompare;
+    return String(a?.username ?? '').localeCompare(String(b?.username ?? ''), 'zh-CN', { numeric: true, sensitivity: 'base' });
+}
+
+function reconcileUserDisplayOrder(users, previousOrder = [], priorityId = null, forceSort = false) {
+    const list = Array.isArray(users) ? users : [];
+    const byId = new Map();
+    for (const user of list) {
+        const id = String(user?.id ?? '');
+        if (id && !byId.has(id)) byId.set(id, user);
+    }
+
+    const seen = new Set();
+    const existingOrder = [];
+    for (const value of Array.isArray(previousOrder) ? previousOrder : []) {
+        const id = String(value ?? '');
+        if (id && byId.has(id) && !seen.has(id)) {
+            existingOrder.push(id);
+            seen.add(id);
+        }
+    }
+
+    const normalizedPriorityId = priorityId == null ? '' : String(priorityId);
+    if (forceSort || existingOrder.length === 0) {
+        return [...byId.values()]
+            .sort((a, b) => compareUsersForDisplay(a, b, normalizedPriorityId))
+            .map(user => String(user.id));
+    }
+
+    const newcomers = [...byId.values()]
+        .filter(user => !seen.has(String(user.id)))
+        .sort((a, b) => compareUsersForDisplay(a, b));
+    let nextOrder = [...existingOrder, ...newcomers.map(user => String(user.id))];
+
+    if (normalizedPriorityId && byId.has(normalizedPriorityId)) {
+        nextOrder = nextOrder.filter(id => id !== normalizedPriorityId);
+        let insertAt = 0;
+        while (insertAt < nextOrder.length && Boolean(byId.get(nextOrder[insertAt])?.isStarred)) insertAt += 1;
+        nextOrder.splice(insertAt, 0, normalizedPriorityId);
+    }
+    return nextOrder;
+}
+
+function sortUsersByDisplayOrder(users, order) {
+    const positions = new Map((Array.isArray(order) ? order : []).map((id, index) => [String(id), index]));
+    return [...(Array.isArray(users) ? users : [])].sort((a, b) => {
+        const aPosition = positions.get(String(a?.id ?? ''));
+        const bPosition = positions.get(String(b?.id ?? ''));
+        if (aPosition !== undefined && bPosition !== undefined) return aPosition - bPosition;
+        if (aPosition !== undefined) return -1;
+        if (bPosition !== undefined) return 1;
+        return compareUsersForDisplay(a, b);
+    });
+}
+
+let compactTableResizeObserver = null;
+
+function syncCompactPageWidth() {
+    const main = document.querySelector('.main-content');
+    const wrap = document.querySelector('.table-wrap');
+    const table = document.querySelector('.user-table');
+    if (!main || !wrap || !table) return;
+
+    const mainStyle = getComputedStyle(main);
+    const wrapStyle = getComputedStyle(wrap);
+    const horizontalPadding = parseFloat(mainStyle.paddingLeft) + parseFloat(mainStyle.paddingRight);
+    const horizontalBorder = parseFloat(wrapStyle.borderLeftWidth) + parseFloat(wrapStyle.borderRightWidth);
+    const tableWidth = table.getBoundingClientRect().width;
+    if (!Number.isFinite(tableWidth) || tableWidth <= 0) return;
+
+    const shellWidth = Math.ceil(tableWidth + horizontalBorder + horizontalPadding);
+    document.documentElement.style.setProperty('--compact-shell-width', `${shellWidth}px`);
+}
+
+function observeCompactPageWidth() {
+    const table = document.querySelector('.user-table');
+    if (!table) return;
+    if (typeof ResizeObserver === 'function') {
+        if (!compactTableResizeObserver) compactTableResizeObserver = new ResizeObserver(syncCompactPageWidth);
+        compactTableResizeObserver.disconnect();
+        compactTableResizeObserver.observe(table);
+    }
+    syncCompactPageWidth();
+}
+
+function bindEditableCell(td, userId, field) {
+    let copyTimer = null;
+    let touchStart = null;
+    let lastTap = null;
+    let ignoreClickUntil = 0;
+
+    const copyCellText = () => {
+        if (!td.querySelector('.edit-input')) copyToClipboard(td.innerText.replace('★', ''));
+    };
+    const scheduleCopy = delay => {
+        clearTimeout(copyTimer);
+        copyTimer = setTimeout(() => {
+            lastTap = null;
+            copyCellText();
+        }, delay);
+    };
+    const beginEdit = event => {
+        if (td.querySelector('.edit-input')) return;
+        if (event?.cancelable) event.preventDefault();
+        clearTimeout(copyTimer);
+        lastTap = null;
+        makeEditable(td, userId, field);
+    };
+
+    td.onclick = () => {
+        if (td.querySelector('.edit-input') || Date.now() < ignoreClickUntil) return;
+        scheduleCopy(320);
+    };
+    td.ondblclick = beginEdit;
+    td.addEventListener('touchstart', event => {
+        if (event.touches.length !== 1) {
+            touchStart = null;
+            lastTap = null;
+            return;
+        }
+        const touch = event.touches[0];
+        touchStart = { x: touch.clientX, y: touch.clientY, moved: false };
+    }, { passive: true });
+    td.addEventListener('touchmove', event => {
+        if (!touchStart || event.touches.length !== 1) return;
+        const touch = event.touches[0];
+        if (Math.hypot(touch.clientX - touchStart.x, touch.clientY - touchStart.y) > 12) {
+            touchStart.moved = true;
+        }
+    }, { passive: true });
+    td.addEventListener('touchend', event => {
+        const touch = event.changedTouches[0];
+        if (!touch || !touchStart || touchStart.moved) {
+            touchStart = null;
+            lastTap = null;
+            clearTimeout(copyTimer);
+            return;
+        }
+
+        const now = Date.now();
+        const isDoubleTap = lastTap && now - lastTap.time <= 500 &&
+            Math.hypot(touch.clientX - lastTap.x, touch.clientY - lastTap.y) <= 28;
+        touchStart = null;
+        ignoreClickUntil = now + 700;
+        if (event.cancelable) event.preventDefault();
+
+        if (isDoubleTap) {
+            beginEdit(event);
+        } else {
+            lastTap = { time: now, x: touch.clientX, y: touch.clientY };
+            scheduleCopy(520);
+        }
+    }, { passive: false });
+    td.addEventListener('touchcancel', () => {
+        touchStart = null;
+        lastTap = null;
+        clearTimeout(copyTimer);
+    }, { passive: true });
+}
+
+function render(forceSort = false) {
+    const container = document.getElementById('userTableBody');
+    let displayData = db.users.filter(isTargetOwnerRecord);
+    const priorityUserId = newlyActivatedId;
+    
+    const filters = {};
+    document.querySelectorAll('.col-filter').forEach(i => { if(i.value) filters[i.dataset.col] = i.value.toLowerCase(); });
+
+    displayData = displayData.filter(u => {
+        const statusMatch = currentFilter === 'all' || getStatus(u.expiry) === currentFilter;
+        const columnMatch = Object.keys(filters).every(key => String(u[key] || '-').toLowerCase().includes(filters[key]));
+        return statusMatch && columnMatch;
+    });
+
+    renderedUserOrder = reconcileUserDisplayOrder(db.users, renderedUserOrder, priorityUserId, forceSort);
+    displayData = sortUsersByDisplayOrder(displayData, renderedUserOrder);
+
+    document.getElementById('statWindows').innerText = `/${displayData.reduce((s, u) => s + parseInt(u.windows || 0), 0)}`;
+    document.getElementById('statUsers').innerText = `/${displayData.length}`;
+    document.getElementById('statAmount').innerText = `/${displayData.reduce((s, u) => s + parseFloat(u.amount || 0), 0).toFixed(0)}`;
+    document.getElementById('trashCount').innerText = db.trash.filter(isTargetOwnerRecord).length;
+
+    renderStatsBar();
+    renderUnusedGrid();
+
+    container.innerHTML = '';
+    displayData.forEach(u => {
+        const tr = document.createElement('tr');
+        const st = getStatus(u.expiry);
+        const bitBadge = bitBadgeForRecord(u);
+        tr.innerHTML = `
+            <td><button class="btn btn-ghost btn-sm" onclick="copyUserSummary('${u.id}')">复制</button></td>
+            <td class="owner-cell">${u.owner || '-'}</td>
+            <td class="window-cell">${u.windows ?? DEFAULT_WINDOWS}</td>
+            <td class="copy-on-click user-cell" title="单击复制用户名"><b>${u.username}</b></td>
+            <td class="copy-on-click" title="单击复制密码">${u.password || DEFAULT_PWD}</td>
+            <td class="editable wechat-cell" data-f="wechat">${u.wechat||'-'}</td>
+            <td>${u.activeTime || '-'}</td>
+            <td>${u.expiry}</td>
+            <td class="amount-cell" style="color:var(--accent)">${u.amount || DEFAULT_AMOUNT}</td>
+            <td class="status-cell"><span style="color:var(--${st}); font-size:10px; font-weight:bold">${st==='expiring'?'⚠️到期':st==='active'?'✅有效':'❌过期'}</span></td>
+            <td class="window-change-cell"><button class="btn btn-ghost btn-sm" onclick="openWindowChangeModal('${u.id}')">修改</button></td>
+            <td class="row-actions">
+                <button class="btn btn-success btn-sm" onclick="quickRenew('${u.id}')">续费</button>
+            </td>
+        `;
+
+        tr.querySelectorAll('.copy-on-click').forEach(td => {
+            td.onclick = () => copyToClipboard(td.innerText);
+        });
+
+        tr.querySelectorAll('.editable').forEach(td => bindEditableCell(td, u.id, td.dataset.f));
+        container.appendChild(tr);
+    });
+    observeCompactPageWidth();
+    renderBitIntegration();
+    renderOperationLogs();
+    if (priorityUserId != null && String(newlyActivatedId) === String(priorityUserId)) newlyActivatedId = null;
+}
+
+function renderTrash() {
+    const list = document.getElementById('trashList');
+    const orgTrash = db.trash.filter(isTargetOwnerRecord);
+    list.innerHTML = orgTrash.map(u => `
+        <div class="trash-row">
+            <div style="overflow:hidden; text-overflow:ellipsis"><b>${u.username}</b></div>
+            <div>${u.wechat || '-'}</div>
+            <div style="color:var(--accent)">${(u.expiry||'').slice(5)}</div>
+            <div>¥${u.amount || '0'}</div>
+            <div><button class="btn btn-success btn-sm" onclick="renewFromTrash('${u.id}')">续费</button></div>
+        </div>
+    `).join('') || '<div style="text-align:center; padding:40px; color:var(--text3)">空</div>';
+}
+
+async function renewFromTrash(id) {
+    if (!(await ensureCloudInitializedForAction())) return false;
+    let index = db.trash.findIndex(item => String(item.id) === String(id) && isTargetOwnerRecord(item));
+    if (index < 0) return alert('该账号不在当前归属的回收站中，请刷新后重试。');
+    let record = db.trash[index];
+    let renewalPrice = validRenewalPriceOrAlert(record);
+    if (renewalPrice === null) return false;
+    if (!(await showActionConfirm(`确定为“${record.username}”续费30天并恢复 BitBrowser 员工号？\n\n窗口：${record.windows}\n需支付：¥${renewalPrice.toFixed(2)}`, { title:'续费恢复确认', confirmText:'确认并支付' }))) return false;
+    const payment = await requestPaidOperation('restore', [id], `雪莲 · ${record.username} · ${record.windows}窗口续费`);
+    if (!payment) return false;
+    if (paymentAlreadyApplied(payment, id, 'renew')) {
+        await completePaidOperation(payment, { recordIds:[String(id)], action:'restore', duplicatePrevented:true });
+        alert('该付款订单已经完成续费，无需重复处理。');
+        return true;
+    }
+    if (!(await ensureCloudInitializedForAction())) {
+        alert('✅ 已确认付款，但暂时无法同步云端数据。请不要再次付款，稍后用同一页面重试。');
+        return false;
+    }
+    index = db.trash.findIndex(item => String(item.id) === String(id) && isTargetOwnerRecord(item));
+    if (index < 0) {
+        alert('✅ 已确认付款，但该员工号当前不在回收站。请不要再次付款，联系管理员并提供订单号：' + payment.orderNo);
+        return false;
+    }
+    record = db.trash[index];
+    const liveRenewalCents = recordMonthlyAmountCents(record);
+    renewalPrice = liveRenewalCents === null ? null : liveRenewalCents / 100;
+    if (renewalPrice === null) {
+        alert('✅ 已确认付款，但该员工号的金额已发生异常。请不要再次付款，联系管理员并提供订单号：' + payment.orderNo);
+        return false;
+    }
+    if (Math.abs(Number(payment.totalAmount) - renewalPrice) > 0.001) {
+        alert('✅ 已确认付款，但扫码期间窗口数或月费发生变化，付款金额与当前月费不一致。系统未执行续费，请联系管理员处理。订单号：' + payment.orderNo);
+        return false;
+    }
+    const operationClickedAt = new Date().toISOString();
+    const expiryBefore = String(record.expiry || '');
+    try {
+        const newExpiry = getRenewedExpiry(record);
+        enqueueRestrictedLifecycleTask(record, 'recover');
+        db.trash.splice(index,1);
+        record.expiry = newExpiry;
+        delete record.operated;
+        delete record._bitPendingRecoverKey;
+        db.users.push(record);
+        recordOperationLog(record, 'renew', paidLogDetails(payment, { operatedAt:operationClickedAt, expiryBefore, expiryAfter:newExpiry }));
+        saveToCloud();
+        renderTrash();
+        render();
+        await completePaidOperation(payment, { recordIds:[String(id)], action:'restore', expiryAfter:newExpiry });
+        return true;
+    } catch (error) {
+        alert(`✅ 付款已确认，但续费恢复失败：\n${error?.message || error}\n\n请不要再次付款，稍后重试或联系管理员。订单号：${payment.orderNo}`);
+        return false;
+    }
+}
+
+async function activate(id) {
+    if (!(await ensureCloudInitializedForAction())) return false;
+    let u = db.unused.find(x => x.id === id);
+    if(!u) return false;
+    if (!(await showActionConfirm(`确定激活“${u.username}”？\n\n默认窗口数${DEFAULT_WINDOWS}\n需支付：¥${Number(DEFAULT_AMOUNT).toFixed(2)}`, { title:'激活确认', confirmText:'确认并支付' }))) return false;
+    const payment = await requestPaidOperation('activate', [id], `雪莲 · ${u.username} 激活`);
+    if (!payment) return false;
+    if (!(await ensureCloudInitializedForAction())) {
+        alert('✅ 已确认付款，但暂时无法同步云端数据。请不要再次付款，稍后用同一页面重试。');
+        return false;
+    }
+    u = db.unused.find(x => x.id === id);
+    if (!u) {
+        alert('✅ 已确认付款，但该待激活名额已发生变化。请不要再次付款，联系管理员并提供订单号：' + payment.orderNo);
+        return false;
+    }
+    const operationClickedAt = new Date().toISOString();
+    const now = getBeijingTime();
+    const activeTime = now.toISOString().slice(0,10);
+    now.setMonth(now.getMonth() + 1);
+    newlyActivatedId = id;
+    const activatedUser = { 
+        id: id, 
+        username: u.username, 
+        password: u.password, 
+        owner: TARGET_ORG, 
+        wechat: '-', 
+        amount: DEFAULT_AMOUNT, 
+        windows: DEFAULT_WINDOWS, 
+        activeTime, 
+        expiry: now.toISOString().slice(0,10), 
+        isStarred: false 
+    };
+    db.users.push(activatedUser);
+    db.unused = db.unused.filter(x => x.id !== id);
+    recordOperationLog(activatedUser, 'activate', paidLogDetails(payment, { operatedAt:operationClickedAt, expiryAfter:activatedUser.expiry }));
+    saveToCloud(); render();
+    await completePaidOperation(payment, { recordIds:[String(id)], action:'activate', expiryAfter:activatedUser.expiry });
+    return true;
+}
+
+let renewalConfirmResolver = null;
+
+function showRenewalConfirm(record, nextExpiry, amount = null) {
+    if (renewalConfirmResolver) resolveRenewalConfirm(false);
+    const showPaymentDetails = amount !== null;
+    document.getElementById('renewalConfirmUsername').textContent = record.username || '-';
+    document.getElementById('renewalConfirmWechat').textContent = record.wechat || '-';
+    document.getElementById('renewalConfirmCurrentExpiry').textContent = record.expiry || '-';
+    document.getElementById('renewalConfirmNextExpiry').textContent = nextExpiry || '-';
+    document.getElementById('renewalConfirmWindows').textContent = String(record.windows || 0);
+    document.getElementById('renewalConfirmAmount').textContent = showPaymentDetails ? `¥${Number(amount).toFixed(2)}` : '';
+    document.getElementById('renewalConfirmWindowsRow').hidden = !showPaymentDetails;
+    document.getElementById('renewalConfirmAmountRow').hidden = !showPaymentDetails;
+    const modal = document.getElementById('renewalConfirmModal');
+    document.body.appendChild(modal);
+    modal.style.setProperty('z-index', '2147483647', 'important');
+    modal.classList.add('open');
+    setTimeout(() => document.getElementById('renewalConfirmButton').focus(), 0);
+    return new Promise(resolve => { renewalConfirmResolver = resolve; });
+}
+
+function resolveRenewalConfirm(confirmed) {
+    document.getElementById('renewalConfirmModal').classList.remove('open');
+    const resolve = renewalConfirmResolver;
+    renewalConfirmResolver = null;
+    if (resolve) resolve(Boolean(confirmed));
+}
+
+let actionConfirmResolver = null;
+
+function showActionConfirm(message, options = {}) {
+    if (actionConfirmResolver) resolveActionConfirm(false);
+    const title = options.title || '操作确认';
+    const confirmText = options.confirmText || '确认';
+    const button = document.getElementById('actionConfirmButton');
+    document.getElementById('actionConfirmTitle').textContent = title;
+    document.getElementById('actionConfirmMessage').textContent = String(message || '确定继续此操作？');
+    button.textContent = confirmText;
+    button.style.background = options.danger ? 'var(--danger)' : 'var(--accent)';
+    button.style.color = options.danger ? '#fff' : '#000';
+    const modal = document.getElementById('actionConfirmModal');
+    document.body.appendChild(modal);
+    modal.style.setProperty('z-index', '2147483647', 'important');
+    modal.classList.add('open');
+    setTimeout(() => button.focus(), 0);
+    return new Promise(resolve => { actionConfirmResolver = resolve; });
+}
+
+function resolveActionConfirm(confirmed) {
+    document.getElementById('actionConfirmModal').classList.remove('open');
+    const resolve = actionConfirmResolver;
+    actionConfirmResolver = null;
+    if (resolve) resolve(Boolean(confirmed));
+}
+
+async function quickRenew(id) {
+    if (!(await ensureCloudInitializedForAction())) return false;
+    let u = db.users.find(x => x.id === id && isTargetOwnerRecord(x));
+    if (!u) return false;
+    if (activeWindowPaymentLock(u)) return alert('该员工号已有窗口付款订单进行中，完成或超时前不能续费。');
+    let renewalPrice = validRenewalPriceOrAlert(u);
+    if (renewalPrice === null) return false;
+    const renewalPreviewExpiry = getRenewedExpiry(u);
+    if (!(await showRenewalConfirm(u, renewalPreviewExpiry, renewalPrice))) return false;
+    const payment = await requestPaidOperation('renew', [id], `雪莲 · ${u.username} · ${u.windows}窗口续费`);
+    if (!payment) return false;
+    if (paymentAlreadyApplied(payment, id, 'renew')) {
+        await completePaidOperation(payment, { recordIds:[String(id)], action:'renew', duplicatePrevented:true });
+        alert('该付款订单已经完成续费，无需重复处理。');
+        return true;
+    }
+    if (!(await ensureCloudInitializedForAction())) {
+        alert('✅ 已确认付款，但暂时无法同步云端数据。请不要再次付款，稍后用同一页面重试。');
+        return false;
+    }
+    u = db.users.find(x => x.id === id && isTargetOwnerRecord(x));
+    if (!u) {
+        alert('✅ 已确认付款，但未找到该员工号。请不要再次付款，联系管理员并提供订单号：' + payment.orderNo);
+        return false;
+    }
+    const liveRenewalCents = recordMonthlyAmountCents(u);
+    renewalPrice = liveRenewalCents === null ? null : liveRenewalCents / 100;
+    if (renewalPrice === null) {
+        alert('✅ 已确认付款，但该员工号的金额已发生异常。请不要再次付款，联系管理员并提供订单号：' + payment.orderNo);
+        return false;
+    }
+    if (Math.abs(Number(payment.totalAmount) - renewalPrice) > 0.001) {
+        alert('✅ 已确认付款，但扫码期间窗口数或月费发生变化，付款金额与当前月费不一致。系统未执行续费，请联系管理员处理。订单号：' + payment.orderNo);
+        return false;
+    }
+    const operationClickedAt = new Date().toISOString();
+    const expiryBefore = String(u.expiry || '');
+    u.expiry = getRenewedExpiry(u);
+    recordOperationLog(u, 'renew', paidLogDetails(payment, { operatedAt:operationClickedAt, expiryBefore, expiryAfter:u.expiry }));
+    saveToCloud(); render();
+    await completePaidOperation(payment, { recordIds:[String(id)], action:'renew', expiryAfter:u.expiry });
+    return true;
+}
+
+function renderStatsBar() {
+    const orgUsers = db.users.filter(isTargetOwnerRecord);
+    const s = { 
+        all: orgUsers.length, 
+        active: orgUsers.filter(u => getStatus(u.expiry) === 'active').length, 
+        expiring: orgUsers.filter(u => getStatus(u.expiry) === 'expiring').length, 
+        expired: orgUsers.filter(u => getStatus(u.expiry) === 'expired').length, 
+        unused: db.unused.length 
+    };
+    const labels = { all:'总用户', active:'有效', expiring:'待续', expired:'过期', unused:'名额' };
+    
+    document.getElementById('statsBar').innerHTML = Object.keys(labels).map(k => {
+        // 将 active 的颜色指向 success (绿色)
+        let colorVar = k;
+        if (k === 'all') colorVar = 'accent';
+        if (k === 'active') colorVar = 'success'; 
+        
+        return `
+            <div class="stat-card ${currentFilter===k?'active':''}" onclick="currentFilter='${k}';render()">
+                <div class="stat-label">${labels[k]}</div>
+                <div class="stat-value" style="color:var(--${colorVar})">${s[k]}</div>
+            </div>`;
+    }).join('');
+}
+
+function renderUnusedGrid() {
+    document.getElementById('unusedGrid').innerHTML = db.unused.map(u => `
+        <div class="unused-item">
+            <span>${u.username}</span>
+            <button class="btn" 
+                    style="height:18px; font-size:9px; background-color: #2ed573; color: #000000; border: none; font-weight: bold;" 
+                    onclick="activate('${u.id}')">激活</button>
+        </div>
+    `).join('');
+}
+
+function makeEditable(el, id, field) {
+    if (!['wechat'].includes(field)) return;
+    const oldVal = el.innerText === '-' ? '' : el.innerText;
+    const input = document.createElement('input');
+    input.className = 'edit-input inline-edit-input';
+    input.value = oldVal;
+    el.innerHTML = ''; el.appendChild(input); input.focus();
+    input.onblur = () => {
+      if (input._saved) return;
+      input._saved = true;
+      const u = db.users.find(x => x.id === id);
+      if(u) {
+        const rawValue = input.value.trim();
+        u[field] = rawValue || '-';
+        saveToCloud();
+      }
+      render();
+    };
+    input.onkeydown = (e) => { if(e.key==='Enter') input.blur(); };
+}
+
+function toggleTrash(s) { document.getElementById('trashDrawer').classList.toggle('open',s); document.getElementById('overlay').classList.toggle('open',s); if(s) renderTrash(); }
+function buildUserCopyText(record) {
+    const value = key => {
+        const raw = record && record[key];
+        return raw === undefined || raw === null || raw === '' ? '-' : String(raw);
+    };
+    return `窗口数：${value('windows')}，用户名：${value('username')}，密码：${value('password')}，微信：${value('wechat')}，激活：${value('activeTime')}，到期：${value('expiry')}，金额：`;
+}
+function copyUserSummary(id) {
+    const record = db.users.find(item => String(item.id) === String(id) && isTargetOwnerRecord(item));
+    if (!record) return alert('找不到该用户，请刷新后重试。');
+    copyToClipboard(buildUserCopyText(record));
+}
+function copyToClipboard(text) { if (!text || text === '-') return; const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); document.getElementById('toastMsg').classList.add('show'); setTimeout(() => document.getElementById('toastMsg').classList.remove('show'), 1500); }
+function showLoading(s, options = {}) {
+    const mask = document.getElementById('loadingMask');
+    const blocking = options.blocking !== false;
+    mask.classList.toggle('nonblocking', s && !blocking);
+    mask.style.display = s ? 'flex' : 'none';
+}
+
+(function initLoad() {
+    const local = localStorage.getItem(STORAGE_KEY);
+    if (local) {
+        try {
+            db = normalizeDb(JSON.parse(local));
+            rebuildActiveConnectors();
+            render();
+        } catch(e) {}
+    }
+    syncFromCloud();
+    syncConnectors(true);
+})();
+
+window.addEventListener('beforeunload', () => {
+    const payload = buildMainDataPayload();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    if (_hasPendingSave && lastKnownUpdatedAt && lastKnownUpdatedAt !== 'FRESH') {
+        const now = new Date().toISOString();
+        const query = new URLSearchParams({ id:'eq.1', updated_at:`eq.${lastKnownUpdatedAt}` });
+        try {
+            fetch(`${SUPABASE_URL}/rest/v1/MainData?${query}`, {
+                method:'PATCH', keepalive:true,
+                headers:{ apikey:SUPABASE_KEY, Authorization:`Bearer ${SUPABASE_KEY}`, 'Content-Type':'application/json', Prefer:'return=minimal' },
+                body:JSON.stringify({ content:payload, updated_at:now })
+            });
+        } catch (e) {}
+    }
+});
+setInterval(() => {
+    if (document.visibilityState === 'visible') {
+        syncFromCloud(true);
+    }
+}, 60000);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        syncFromCloud(true);
+        syncConnectors(true);
+    }
+});
+</script>
+</body>
+</html>
