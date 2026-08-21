@@ -1478,6 +1478,8 @@ async function _doSaveToCloud() {
 
         if (lastKnownUpdatedAt !== 'FRESH' && (!opResult.data || opResult.data.length === 0)) {
             conflictDetected = true;
+            clearTimeout(_saveTimer);
+            _saveTimer = null;
             _hasPendingSave = true;
             if (!isSilent) _isSilentSave = false;
             statusEl.innerHTML = `<span style="color:var(--warning);font-weight:bold;">☁️ 检测到多人同时操作，正在安全合并...</span>`;
@@ -1515,7 +1517,7 @@ async function _doSaveToCloud() {
         }
     } finally {
         _isSaving = false;
-        if (_hasPendingSave && !_saveRetryTimer && !conflictDetected) scheduleCloudSave(80);
+        if (_hasPendingSave && !_saveRetryTimer && !conflictDetected) scheduleCloudSave(500);
     }
 }
 
@@ -2256,6 +2258,9 @@ function showLoading(s, options = {}) {
     }
     const cachedVersion = localStorage.getItem(STORAGE_KEY + '_version');
     if (cachedVersion) lastKnownUpdatedAt = cachedVersion;
+    if (typeof baseSnapshot !== 'undefined' && !baseSnapshot) {
+        baseSnapshot = JSON.parse(JSON.stringify(db));
+    }
     syncFromCloud();
     syncConnectors(true);
 })();
