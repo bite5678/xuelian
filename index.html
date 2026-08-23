@@ -613,7 +613,7 @@ function windowChangePlan(record, targetWindows, delta) {
     if (!Number.isSafeInteger(change) || change === 0 || target !== currentWindows + change) {
         return { ok:false, message:'窗口变化无效。' };
     }
-    if (target <= TIER_WINDOWS_HIGH || currentWindows <= TIER_WINDOWS_HIGH) {
+    if (target <= TIER_WINDOWS_HIGH && currentWindows <= TIER_WINDOWS_HIGH) {
         if (currentWindows !== TIER_WINDOWS_LOW && currentWindows !== TIER_WINDOWS_HIGH) {
             return { ok:false, message:'100 口以内的窗口数只有 50 口和 100 口两档，请先修正当前窗口数。' };
         }
