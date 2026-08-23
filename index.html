@@ -972,6 +972,64 @@ function newLocalTaskId() {
     return `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function bitTaskToRow(job) {
+    const pick = (...keys) => {
+        for (const key of keys) {
+            const v = job[key];
+            if (v !== undefined && v !== null) return v;
+        }
+        return undefined;
+    };
+    return {
+        id: pick('id'),
+        status: pick('status', 'pending'),
+        action: pick('action', ''),
+        username: pick('username', ''),
+        source_record_id: pick('sourceRecordId', 'source_record_id', ''),
+        source_owner: pick('sourceOwner', 'source_owner', ''),
+        target_connector_id: pick('targetConnectorId', 'target_connector_id'),
+        target_prefix: pick('targetPrefix', 'target_prefix'),
+        target_window_count: pick('targetWindowCount', 'target_window_count'),
+        bit_user_id: pick('bitUserId', 'bit_user_id'),
+        claimed_by: pick('claimedBy', 'claimed_by'),
+        claim_until: pick('claimUntil', 'claim_until'),
+        next_retry_at: pick('nextRetryAt', 'next_retry_at'),
+        attempts: pick('attempts', 0),
+        result_code: pick('resultCode', 'result_code', ''),
+        last_error: pick('lastError', 'last_error', ''),
+        record_snapshot: pick('recordSnapshot', 'record_snapshot'),
+        dedupe_key: pick('dedupeKey', 'dedupe_key', ''),
+        new_username: pick('newUsername', 'new_username', ''),
+        created_at: pick('createdAt', 'created_at'),
+        updated_at: pick('updatedAt', 'updated_at'),
+        completed_at: pick('completedAt', 'completed_at'),
+        deleted_at: pick('deletedAt', 'deleted_at')
+    };
+}
+
+// 第 1 步：任务写入 bit_tasks 独立表（幂等，失败静默降级——不阻塞页面主流程）
+async function insertBitTaskToCloud(job) {
+    if (!job || !job.id) return false;
+    if (typeof supabaseClient === 'undefined' || !supabaseClient) return false;
+    const row = bitTaskToRow(job);
+    try {
+        const body = JSON.stringify(row);
+        if (typeof trackTraffic === 'function') trackTraffic('task', 'write', body.length);
+        const { error } = await supabaseClient
+            .from('bit_tasks')
+            .insert(row);
+        if (error) {
+            console.warn('[bit_tasks] 写入失败（降级本地）:', error.message, '| 任务id:', job.id);
+            return false;
+        }
+        console.log('[bit_tasks] ✅ 写入成功:', job.id, job.action, job.username);
+        return true;
+    } catch (e) {
+        console.warn('[bit_tasks] 写入异常（降级本地）:', e.message || e, '| 任务id:', job.id);
+        return false;
+    }
+}
+
 function enqueueWindowQuotaTask(record, targetWindowCount) {
     if (!Array.isArray(db.bitTasks)) db.bitTasks = [];
     const current = db.bitTasks.find(task => String(task.id) === String(record.windowJobId || ''));
@@ -1002,6 +1060,7 @@ function enqueueWindowQuotaTask(record, targetWindowCount) {
         completedAt: null
     };
     db.bitTasks.unshift(task);
+    insertBitTaskToCloud(task); // 第 1 步：双写 bit_tasks 独立表（失败不阻塞）
     record.windowJobId = task.id;
     record.windowTarget = targetWindowCount;
     record.windowSyncAction = BIT_WINDOW_QUOTA_ACTION;
@@ -1041,6 +1100,7 @@ function enqueueRestrictedLifecycleTask(record, action) {
         completedAt:null
     };
     db.bitTasks.unshift(task);
+    insertBitTaskToCloud(task); // 第 1 步：双写 bit_tasks 独立表（失败不阻塞）
     record.bitJobId=task.id;
     record.bitSyncAction=action;
     record.bitSyncStatus=task.status;
