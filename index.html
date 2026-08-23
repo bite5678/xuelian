@@ -186,12 +186,7 @@
 
 <div class="stats-bar" id="statsBar"></div>
 
-<div class="unused-container">
-  <div class="unused-box">
-    <div style="font-size: 11px; color: var(--unused); font-weight: bold;">🔑 待激活名额</div>
-    <div class="unused-list" id="unusedGrid"></div>
-  </div>
-</div>
+<div class="unused-container" id="unusedContainer"></div>
 
 <main class="main-content">
   <div class="table-wrap">
@@ -2290,15 +2285,31 @@ function renderStatsBar() {
     }).join('');
 }
 
+function unusedWindows(u) {
+    const w = Number(u && (u.windows ?? 0));
+    return Number.isFinite(w) && w > 0 ? w : Number(TIER_WINDOWS_HIGH || 100);
+}
+
 function renderUnusedGrid() {
-    document.getElementById('unusedGrid').innerHTML = db.unused.map(u => `
-        <div class="unused-item">
-            <span>${u.username}</span>
-            <button class="btn" 
-                    style="height:18px; font-size:9px; background-color: #2ed573; color: #000000; border: none; font-weight: bold;" 
-                    onclick="activate('${u.id}')">激活</button>
-        </div>
-    `).join('');
+    const container = document.getElementById('unusedContainer');
+    if (!container) return;
+    const groups = new Map();
+    db.unused.forEach(u => {
+        const w = unusedWindows(u);
+        if (!groups.has(w)) groups.set(w, []);
+        groups.get(w).push(u);
+    });
+    const keys = Array.from(groups.keys()).sort((a, b) => b - a);
+    container.innerHTML = keys.map(w => {
+        const items = groups.get(w).map(u => {
+            const username = escapeHtml(String(u.username ?? ''));
+            return `<div class="unused-item"><span>${username}</span><button class="btn" style="height:18px; font-size:9px; background-color: #2ed573; color: #000000; border: none; font-weight: bold;" onclick="activate('${u.id}')">激活</button></div>`;
+        }).join('');
+        return `<div class="unused-box">
+      <div style="font-size: 11px; color: var(--unused); font-weight: bold;">🔑 待激活名额（${w}窗口）</div>
+      <div class="unused-list">${items}</div>
+    </div>`;
+    }).join('');
 }
 
 function makeEditable(el, id, field) {
