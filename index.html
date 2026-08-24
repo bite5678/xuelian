@@ -1321,6 +1321,30 @@ function rebuildActiveConnectors() {
     });
 }
 
+function syncRecordTaskStatus() {
+    const tasks = Array.isArray(_bitTaskCache) ? _bitTaskCache : (db.bitTasks || []);
+    for (const task of tasks) {
+        const isWindowQuota = String(task.action || '') === BIT_WINDOW_QUOTA_ACTION;
+        const jobField = isWindowQuota ? 'windowJobId' : 'bitJobId';
+        for (const listName of ['users', 'unused', 'trash']) {
+            for (const record of db[listName] || []) {
+                if (String(record[jobField] || '') !== String(task.id)) continue;
+                if (isWindowQuota) {
+                    record.windowSyncStatus = task.status;
+                    record.windowSyncAction = task.action;
+                    record.windowSyncMessage = task.lastError || task.resultCode || '';
+                    record.windowSyncUpdatedAt = task.updatedAt || task.updated_at || '';
+                } else {
+                    record.bitSyncStatus = task.status;
+                    record.bitSyncAction = task.action;
+                    record.bitSyncMessage = task.lastError || task.resultCode || '';
+                    record.bitSyncUpdatedAt = task.updatedAt || task.updated_at || '';
+                }
+            }
+        }
+    }
+}
+
 function renderBitIntegration() {
     const button = document.getElementById('bitLinkButton');
     const summary = document.getElementById('bitLinkSummary');
@@ -1329,6 +1353,7 @@ function renderBitIntegration() {
     const searchInput = document.getElementById('bitJobSearchInput');
     const searchCount = document.getElementById('bitJobSearchCount');
     if (!button || !summary || !routeList || !jobList) return;
+    syncRecordTaskStatus();
 
     const now = Date.now();
     bitConnectorRoutes = activeConnectors.map(connector => ({
@@ -1580,12 +1605,14 @@ async function insertOperationLogToCloud(log) {
     } catch (e) { console.warn('[operation_logs] 写入异常:', e.message || e); return false; }
 }
 
-function openBitLinkModal() {
+async function openBitLinkModal() {
     document.getElementById('bitLinkModal').classList.add('open');
-    loadBitTasksFromCloud(true).then(() => renderBitIntegration());
-    syncConnectors(false);
+    try {
+        await Promise.all([loadBitTasksFromCloud(true), syncConnectors(false)]);
+    } catch (e) { /* 单个失败不阻塞渲染 */ }
+    renderBitIntegration();
     if (_bitTaskPollTimer) clearInterval(_bitTaskPollTimer);
-    _bitTaskPollTimer = setInterval(() => { loadBitTasksFromCloud(true).then(() => renderBitIntegration()); }, 10000);
+    _bitTaskPollTimer = setInterval(() => { loadBitTasksFromCloud(false).then(() => renderBitIntegration()); }, 10000);
 }
 
 function closeBitLinkModal() {
