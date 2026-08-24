@@ -2591,6 +2591,10 @@ function showLoading(s, options = {}) {
     }
     syncFromCloud();
     syncConnectors(true);
+    // 页面加载即从 bit_tasks 独立表拉取任务，保证按钮统计/任务列表即时正确
+    loadBitTasksFromCloud()
+        .then(() => { renderBitIntegration(); })
+        .catch(() => {});
 })();
 
 window.addEventListener('beforeunload', () => {
