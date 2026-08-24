@@ -1197,7 +1197,16 @@ function bitBadgeForRecord(record) {
     const useWindowTask = record.windowJobId && (!record.bitJobId || String(record.windowSyncUpdatedAt || '') >= String(record.bitSyncUpdatedAt || ''));
     const jobId = useWindowTask ? record.windowJobId : record.bitJobId;
     if (!jobId) return '';
-    const status = String(useWindowTask ? record.windowSyncStatus : record.bitSyncStatus || '');
+    let status = String(useWindowTask ? record.windowSyncStatus : record.bitSyncStatus || '');
+    // 兜底：账号已进入回收站（delete 目标），即使任务状态未回写也视为已完成
+    const act = String(useWindowTask ? record.windowSyncAction : record.bitSyncAction || '');
+    const inTrash = (db.trash || []).some(r => String(r.id || '') === String(record.id || ''));
+    if (inTrash && ['delete', 'disable'].includes(act)) {
+        const pendingSt = new Set(['pending', 'processing', 'routing_required', 'retry_wait', 'needs_attention', '']);
+        if (pendingSt.has(status)) {
+            status = 'success';
+        }
+    }
     const message = useWindowTask ? record.windowSyncMessage : record.bitSyncMessage;
     const prefix = useWindowTask ? '🪟 ' : '🔗 ';
     return `<span class="bit-badge ${escapeHtml(status)}" title="${escapeHtml(message || '')}">${prefix}${escapeHtml(BIT_STATUS_LABELS[status] || status || '待同步')}</span>`;
@@ -2594,6 +2603,10 @@ function showLoading(s, options = {}) {
     // 页面加载即从 bit_tasks 独立表拉取任务，保证按钮统计/任务列表即时正确
     loadBitTasksFromCloud()
         .then(() => { renderBitIntegration(); })
+        .catch(() => {});
+    // 页面加载即预取操作日志，保证按钮计数即时正确
+    loadOperationLogsFromCloud()
+        .then(() => { renderOperationLogs(); })
         .catch(() => {});
 })();
 
