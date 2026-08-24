@@ -1533,8 +1533,8 @@ async function loadOperationLogsFromCloud(force = false) {
 }
 
 function operationLogToRow(log) {
-    const s = v => (v === undefined || v === null ? null : String(v));
-    return {
+    const s = v => (v === undefined || v === null ? '' : String(v));
+    const row2 = {
         id: s(log.id),
         source_record_id: s(log.sourceRecordId || log.source_record_id),
         username: s(log.username),
@@ -1559,6 +1559,8 @@ function operationLogToRow(log) {
         manual_extra_windows: s(log.manualExtraWindows || log.manual_extra_windows),
         sync_source: s(log.syncSource || log.sync_source)
     };
+    if (!row2.operated_at) delete row2.operated_at;
+    return row2;
 }
 
 async function insertOperationLogToCloud(log) {
