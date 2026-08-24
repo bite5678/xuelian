@@ -1532,11 +1532,40 @@ async function loadOperationLogsFromCloud(force = false) {
     } catch (e) { console.warn('[operation_logs] 读取异常:', e.message || e); return _opLogCache || []; }
 }
 
+function operationLogToRow(log) {
+    const s = v => (v === undefined || v === null ? null : String(v));
+    return {
+        id: s(log.id),
+        source_record_id: s(log.sourceRecordId || log.source_record_id),
+        username: s(log.username),
+        wechat: s(log.wechat),
+        owner: s(log.owner),
+        action: s(log.action),
+        active_date: s(log.activeDate || log.active_date),
+        operated_at: s(log.operatedAt || log.operated_at),
+        expiry_before: s(log.expiryBefore || log.expiry_before),
+        expiry_after: s(log.expiryAfter || log.expiry_after),
+        windows: s(log.windows),
+        amount: s(log.amount),
+        payment_order_no: s(log.paymentOrderNo || log.payment_order_no),
+        payment_intent_id: s(log.paymentIntentId || log.payment_intent_id),
+        payment_amount: s(log.paymentAmount || log.payment_amount),
+        alipay_trade_no: s(log.alipayTradeNo || log.alipay_trade_no),
+        payment_tenant: s(log.paymentTenant || log.payment_tenant),
+        windows_before: s(log.windowsBefore || log.windows_before),
+        amount_before: s(log.amountBefore || log.amount_before),
+        paid_target_windows: s(log.paidTargetWindows || log.paid_target_windows),
+        actual_windows: s(log.actualWindows || log.actual_windows),
+        manual_extra_windows: s(log.manualExtraWindows || log.manual_extra_windows),
+        sync_source: s(log.syncSource || log.sync_source)
+    };
+}
+
 async function insertOperationLogToCloud(log) {
     if (!log || !log.id) return false;
     if (typeof supabaseClient === 'undefined' || !supabaseClient) return false;
     try {
-        const { error } = await supabaseClient.from('operation_logs').insert({ ...log });
+        const { error } = await supabaseClient.from('operation_logs').insert(operationLogToRow(log));
         if (error) { console.warn('[operation_logs] 写入失败:', error.message); return false; }
         // 表写入成功后回填本地显示缓存，防止同步覆盖导致的“日志消失”
         if (!Array.isArray(_opLogCache)) _opLogCache = [];
