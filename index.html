@@ -337,7 +337,7 @@ async function trafficFlush() {
             const bytes = buf[kind];
             if (!bytes) continue;
             const { error } = await supabaseClient.from('traffic_usage')
-                .upsert({ source: TRAFFIC_SOURCE, kind, bytes, hits: 1, day }, { onConflict: 'source,kind,day' });
+                .insert({ source: TRAFFIC_SOURCE, kind, bytes, hits: 1, day });
             if (error) console.warn('[traffic] 上报失败:', error.message);
         }
     } catch (e) { /* 静默 */ }
