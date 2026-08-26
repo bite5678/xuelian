@@ -1112,6 +1112,7 @@ function enqueueWindowQuotaTask(record, targetWindowCount) {
         id: newLocalTaskId(),
         dedupeKey: `window-quota:${record.id}:${targetWindowCount}:${Date.now()}`,
         sourceRecordId: String(record.id || ''),
+        sourceOwner: String(record.owner || ''),
         username: String(record.username || ''),
         action: BIT_WINDOW_QUOTA_ACTION,
         status: 'routing_required',
