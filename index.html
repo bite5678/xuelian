@@ -877,7 +877,31 @@ async function confirmWindowChange() {
     if (delta > 0 && remainingDays === null) return alert('当前到期日期无效，请先联系管理员修正。');
     if (delta > 0 && remainingDays === 0) return alert('到期日当天或已过期，已无剩余计费天数，请先续费再增加窗口。');
     const feeCents = delta > 0 ? plan.feeCents : 0;
-    if (activeWindowChangeTask(record)) return alert('该员工号已有修改窗口任务未完成，请等待完成或先在联动状态中取消。');
+    {
+        const _activeTask = activeWindowChangeTask(record);
+        if (_activeTask) {
+            let _taskDone = false;
+            try {
+                const { data: _liveTask } = await supabaseClient
+                    .from('bit_tasks')
+                    .select('id,status')
+                    .eq('id', _activeTask.id)
+                    .maybeSingle();
+                if (_liveTask && _liveTask.id) {
+                    const _st = String(_liveTask.status || '');
+                    _taskDone = ['success', 'resolved', 'cancelled'].includes(_st);
+                } else {
+                    // bit_tasks 里查不到 = 旧任务，按本地状态判断
+                    _taskDone = false;
+                }
+            } catch (e) {
+                _taskDone = false;
+            }
+            if (!_taskDone) {
+                return alert('该员工号已有修改窗口任务未完成，请等待完成或先在联动状态中取消。');
+            }
+        }
+    }
 
     if (delta > 0 && feeCents > 0) {
         try {
