@@ -318,8 +318,10 @@ const SUPABASE_URL = 'https://xlmnfzocrlqvbzzrdshr.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsbW5mem9jcmxxdmJ6enJkc2hyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5ODMyMjAsImV4cCI6MjA5MDU1OTIyMH0.Pvhl7JTz-FmOZ6J_aT8kBRve3ZrjOIIVVekr4jTZXUM';
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ── 流量测量上报（诊断用，挂一天看构成）──
-const TRAFFIC_SOURCE = (typeof TARGET_ORG !== 'undefined' && TARGET_ORG) ? TARGET_ORG
-    : (typeof DEFAULT_OWNER !== 'undefined' && DEFAULT_OWNER) ? DEFAULT_OWNER : 'master';
+function getTrafficSource() {
+    return (typeof TARGET_ORG !== 'undefined' && TARGET_ORG) ? TARGET_ORG
+        : (typeof DEFAULT_OWNER !== 'undefined' && DEFAULT_OWNER) ? DEFAULT_OWNER : 'master';
+}
 let _trafficBuf = {};
 let _trafficTimer = null;
 function trafficAccum(kind, bytes) {
@@ -337,7 +339,7 @@ async function trafficFlush() {
             const bytes = buf[kind];
             if (!bytes) continue;
             const { error } = await supabaseClient.from('traffic_usage')
-                .insert({ source: TRAFFIC_SOURCE, kind, bytes, hits: 1, day });
+                .insert({ source: getTrafficSource(), kind, bytes, hits: 1, day });
             if (error) console.warn('[traffic] 上报失败:', error.message);
         }
     } catch (e) { /* 静默 */ }
