@@ -1063,7 +1063,7 @@ async function insertBitTaskToCloud(job) {
         if (typeof trackTraffic === 'function') trackTraffic('task', 'write', body.length);
         const { error } = await supabaseClient
             .from('bit_tasks')
-            .insert(row);
+            .upsert(row, { onConflict: 'id' });
         if (error) {
             console.warn('[bit_tasks] 写入失败（降级本地）:', error.message, '| 任务id:', job.id);
             return false;
