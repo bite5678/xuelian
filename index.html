@@ -116,7 +116,7 @@
   .bit-job-message { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#fff; }
   .bit-badge { display:inline-block; padding:2px 6px; border-radius:8px; border:1px solid var(--border); font-size:11px; }
   .bit-badge.success, .bit-badge.resolved { color:var(--success); border-color:var(--success); }
-  .bit-badge.pending, .bit-badge.processing, .bit-badge.retry_wait, .bit-badge.routing_required { color:var(--warning); border-color:var(--warning); }
+  .bit-badge.pending, .bit-badge.processing, .bit-badge.retry_wait, .bit-badge.execution_succeeded, .bit-badge.writeback_pending, .bit-badge.routing_required { color:var(--warning); border-color:var(--warning); }
   .bit-badge.needs_attention { color:var(--danger); border-color:var(--danger); }
   .window-change-header, .actions-header { text-align:center; }
   .user-table .owner-header, .user-table .owner-cell { width:60px; min-width:60px; max-width:60px; padding-left:5px; padding-right:5px; text-align:center; }
@@ -365,7 +365,7 @@ function trafficStart() {
     window.addEventListener('pagehide', trafficFlush);
 }
 trafficStart();
-const STORAGE_KEY = 'uf_v45_db';
+const STORAGE_KEY = 'uf_v45_db:xuelian';
 const ROW_ID = 1; 
 
 const DEFAULT_WINDOWS = '100';
@@ -408,13 +408,13 @@ function validRenewalPriceOrAlert(record) {
 }
 const BIT_CONNECTOR_OFFLINE_MS = 60000;
 const BIT_CONNECTOR_RETENTION_MS = 24 * 60 * 60 * 1000;
-const BIT_CONNECTOR_PRUNABLE_TASK_STATUSES = new Set(['routing_required', 'pending', 'processing', 'retry_wait', 'needs_attention']);
+const BIT_CONNECTOR_PRUNABLE_TASK_STATUSES = new Set(['routing_required', 'pending', 'processing', 'retry_wait', 'execution_succeeded', 'writeback_pending', 'needs_attention']);
 const BIT_WINDOW_QUOTA_ACTION = 'set_window_quota';
-const BIT_WINDOW_ACTIVE_STATUSES = new Set(['routing_required','pending','processing','retry_wait','needs_attention']);
+const BIT_WINDOW_ACTIVE_STATUSES = new Set(['routing_required','pending','processing','retry_wait','execution_succeeded','writeback_pending','needs_attention']);
 const BIT_PENDING_STATUSES = new Set(['routing_required','pending','processing','retry_wait']);
 const BIT_STATUS_LABELS = {
     routing_required:'等待前缀路由', pending:'待执行', processing:'执行中', retry_wait:'等待重试',
-    success:'已完成', needs_attention:'需人工处理', resolved:'已解决', cancelled:'已取消'
+    execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', success: '已完成', needs_attention:'需人工处理', resolved:'已解决', cancelled:'已取消'
 };
 const BIT_ACTION_LABELS = {
     disable:'停用员工号', enable:'启用员工号', recover:'恢复员工号', delete:'删除员工号', set_window_quota:'修改窗口数'
@@ -1091,7 +1091,7 @@ async function insertBitTaskToCloud(job) {
         const body = JSON.stringify(row);
         if (typeof trackTraffic === 'function') trackTraffic('task', 'write', body.length);
         const { error } = await supabaseClient
-            .from('bit_tasks')
+            .from('__DISABLED_BIT_TASK_WRITES__')
             .upsert(row, { onConflict: 'id' });
         if (error) {
             console.warn('[bit_tasks] 写入失败（降级本地）:', error.message, '| 任务id:', job.id);
@@ -1579,7 +1579,7 @@ async function loadBitTasksFromCloud(force = false) {
         const cols = 'id,status,action,username,new_username,source_record_id,source_owner,target_connector_id,target_prefix,bit_user_id,target_window_count,attempts,claimed_by,result_code,last_error,created_at,updated_at,completed_at';
         let activeQuery = scopeFilter(supabaseClient.from('bit_tasks').select(cols));
         const { data: activeData, error: activeErr } = await activeQuery
-            .in('status', ['pending', 'processing', 'retry_wait', 'routing_required', 'needs_attention'])
+            .in('status', ['pending', 'processing', 'retry_wait', 'execution_succeeded', 'writeback_pending', 'routing_required', 'needs_attention'])
             .order('created_at', { ascending: false })
             .limit(50);
         if (activeErr) { console.warn('[bit_tasks] active 读取失败:', activeErr.message); return _bitTaskCache || []; }
@@ -1757,10 +1757,10 @@ async function syncFromCloud(silent = false) {
         const _own = (typeof TARGET_ORG !== 'undefined' && TARGET_ORG) ? String(TARGET_ORG) : null;
         const _curKeyQ = (db._syncCursor) || '';
         const _curIsoQ = _curKeyQ ? new Date(_curKeyQ).toISOString() : null;
-        const { data: _uData, error: _uErr } = await supabaseClient.rpc('get_users_since', { p_cursor: _curIsoQ, p_status: null, p_owner: _own });
+        const { data: _uData, error: _uErr } = await supabaseClient.rpc('__FROZEN_get_users_since', { p_cursor: _curIsoQ, p_status: null, p_owner: _own });
         if (_uErr) throw _uErr;
         const _uRows = (_uData && Array.isArray(_uData.rows)) ? _uData.rows : [];
-        const { data: _unData, error: _unErr } = await supabaseClient.rpc('get_users_since', { p_cursor: _curIsoQ, p_status: 'unused', p_owner: null });
+        const { data: _unData, error: _unErr } = await supabaseClient.rpc('__FROZEN_get_users_since', { p_cursor: _curIsoQ, p_status: 'unused', p_owner: null });
         if (_unErr) throw _unErr;
         const _unRows = (_unData && Array.isArray(_unData.rows)) ? _unData.rows : [];
         const _isFull = !!(_uData && _uData.full === true) || !!(_unData && _unData.full === true);
@@ -1935,7 +1935,7 @@ async function autoResolveConflict() {
     let latestData = null;
     let latestUpdatedAt = null;
     try {
-        const { data, error } = await supabaseClient.from('MainData').select('content, updated_at').eq('id', ROW_ID).single();
+        const { data, error } = await supabaseClient.from('__FROZEN_MAIN_DATA__').select('content, updated_at').eq('id', ROW_ID).single();
         if (error) throw error;
         if (data && data.content) {
             latestUpdatedAt = data.updated_at;
@@ -2420,7 +2420,7 @@ async function renewFromTrash(id) {
     const expiryBefore = String(record.expiry || '');
     try {
         const newExpiry = getRenewedExpiry(record);
-        enqueueRestrictedLifecycleTask(record, 'recover');
+        await enqueueRestrictedLifecycleTask(record, 'recover', { targetExpiry: newExpiry });
         db.trash.splice(index,1);
         record.expiry = newExpiry;
         delete record.operated;
@@ -2473,12 +2473,17 @@ async function activate(id) {
         expiry: now.toISOString().slice(0,10), 
         isStarred: false 
     };
-    db.users.push(activatedUser);
-    db.unused = db.unused.filter(x => x.id !== id);
-    recordOperationLog(activatedUser, 'activate', paidLogDetails(payment, { operatedAt:operationClickedAt, expiryAfter:activatedUser.expiry }));
-    saveToCloud(); render();
-    await completePaidOperation(payment, { recordIds:[String(id)], action:'activate', expiryAfter:activatedUser.expiry });
-    return true;
+    try {
+        const committedUser = await activateSlotInCloud(u, activatedUser);
+        recordOperationLog(committedUser, 'activate', paidLogDetails(payment, { operatedAt: operationClickedAt, expiryAfter: committedUser.expiry }));
+        render();
+        return await completePaidOperation(payment, { recordIds:[String(id)], action:'activate', expiryAfter:committedUser.expiry });
+    } catch (error) {
+        alert('✅ 已确认付款，但激活写入失败。请不要重复付款，稍后重试或联系管理员。\n订单号：' + payment.orderNo + '\n' + (error.message || error));
+        await syncFromCloud(true);
+        render();
+        return false;
+    }
 }
 
 let renewalConfirmResolver = null;
@@ -2674,6 +2679,652 @@ function showLoading(s, options = {}) {
     mask.style.display = s ? 'flex' : 'none';
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* FRONTEND_V2_RUNTIME_START */
+(function installFrontendV2Runtime() {
+    'use strict';
+    const schemaVersion = '2026-09-08.3';
+    const usersCursorKey = STORAGE_KEY + ':usersCursor';
+    const tasksCursorKey = STORAGE_KEY + ':tasksCursor';
+    const schemaKey = STORAGE_KEY + ':runtimeSchema';
+    const hiddenTasksKey = STORAGE_KEY + ':hiddenTasks';
+    let saveFailureCount = 0;
+    let terminalRefreshQueued = false;
+
+    globalThis.__ownerSplitLoaded = true;
+    if (localStorage.getItem(schemaKey) !== schemaVersion) {
+        localStorage.removeItem(usersCursorKey);
+        localStorage.removeItem(tasksCursorKey);
+        localStorage.removeItem(STORAGE_KEY + '_version');
+        localStorage.setItem(schemaKey, schemaVersion);
+    }
+
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const getTaskCache = () => {
+        if (typeof _bitTaskCache !== 'undefined' && Array.isArray(_bitTaskCache)) return _bitTaskCache;
+        return Array.isArray(globalThis._bitTaskCache) ? globalThis._bitTaskCache : (db.bitTasks || []);
+    };
+    const setTaskCache = value => {
+        if (typeof _bitTaskCache !== 'undefined') _bitTaskCache = value;
+        else globalThis._bitTaskCache = value;
+        db.bitTasks = value;
+        return value;
+    };
+    const beijingTimeString = () => {
+        if (typeof getBeijingTimeString === 'function') return getBeijingTimeString();
+        return new Intl.DateTimeFormat('zh-CN', {
+            timeZone: 'Asia/Shanghai', hour12: false,
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+        }).format(new Date()).replaceAll('/', '-');
+    };
+    const beijingDateString = () => {
+        if (typeof getBeijingDateStr === 'function') return getBeijingDateStr();
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'
+        }).formatToParts(new Date());
+        const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+        return `${values.year}-${values.month}-${values.day}`;
+    };
+    const normalizedDate = value => {
+        if (typeof normalizeDateStr === 'function') return normalizeDateStr(value);
+        const text = String(value || '').trim();
+        return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
+    };
+    const numberCursor = key => {
+        const value = Number(localStorage.getItem(key) || 0);
+        return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+    };
+    const pageOwner = () => {
+        if (typeof TARGET_ORG !== 'undefined' && TARGET_ORG) return String(TARGET_ORG);
+        if (typeof DEFAULT_OWNER !== 'undefined' && DEFAULT_OWNER) return String(DEFAULT_OWNER);
+        return '';
+    };
+    const isMainPage = () => !pageOwner();
+    const allBuckets = state => [state.users || [], state.unused || [], state.trash || []];
+    const findRecord = id => allBuckets(db).flat().find(row => String(row.id) === String(id));
+    const bucketName = (state, id) => {
+        if ((state.users || []).some(row => String(row.id) === String(id))) return 'users';
+        if ((state.unused || []).some(row => String(row.id) === String(id))) return 'unused';
+        if ((state.trash || []).some(row => String(row.id) === String(id))) return 'trash';
+        return null;
+    };
+    const statusForBucket = { users: 'active', unused: 'unused', trash: 'trash' };
+    const visibleOnPage = row => {
+        const status = String(row.status || 'active');
+        return isMainPage() || status === 'unused' || String(row.owner || '') === pageOwner();
+    };
+    const uuid = () => {
+        if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') return globalThis.crypto.randomUUID();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
+            const value = Math.random() * 16 | 0;
+            return (char === 'x' ? value : (value & 3 | 8)).toString(16);
+        });
+    };
+    const persistLocal = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(buildMainDataPayload()));
+    const rpcErrorText = (error, data) => {
+        const value = data && data.ok === false ? data.code : null;
+        return String(value || error?.message || error?.details || error || 'UNKNOWN_ERROR');
+    };
+    const taskErrorText = code => ({
+        ACTIVE_TASK_EXISTS: '该账号已有其他任务，请等待其完成。',
+        BLOCKED_BY_NEEDS_ATTENTION: '该账号有需要人工处理的任务，处理前不能创建新任务。',
+        NO_CONNECTOR_SCOPE: '没有连接器负责该账号，请先检查连接器前缀。',
+        AMBIGUOUS_CONNECTOR_SCOPE: '该账号同时命中多台连接器，请先修正连接器范围。',
+        NEW_USERNAME_TAKEN: '新用户名已被占用。',
+        NEW_USERNAME_SCOPE_CONFLICT: '新用户名属于另一台连接器。',
+        INVALID_STATE_FOR_ACTION: '账号云端状态已变化，请刷新后重试。',
+        NOT_CANCELLABLE: '任务已经执行或进入后续阶段，不能取消。',
+        EXECUTION_MAY_HAVE_STARTED: '任务可能已经产生外部操作，不能取消。',
+        EXPIRY_TASK_NOT_CANCELLABLE: '自动到期任务不能手动取消。',
+        CANCEL_STATE_CONFLICT: '账号状态已变化，取消未执行。',
+        USER_STATE_CONFLICT: '账号已被其他页面修改，请刷新后重试。',
+        SLOT_NOT_UNUSED: '该待激活名额已被使用，请刷新页面。',
+        SLOT_BLOCKED: '该名额仍有关联任务，暂时不能激活。',
+        USER_NOT_FOUND: '云端找不到该账号。',
+        INVALID_USER_CHANGE: '本次修改包含不允许的字段。',
+        FRONTEND_RPC_ACCESS_REQUIRED: '数据库尚未开放前端 v2 RPC，请先执行 frontend_v2_rpc_access.sql。'
+    }[String(code || '')] || String(code || '云端操作失败。'));
+
+    async function callRpc(name, payload) {
+        const { data, error } = await supabaseClient.rpc(name, payload);
+        if (error) {
+            const denied = String(error.message || '').toLowerCase().includes('permission denied');
+            const wrapped = new Error(taskErrorText(denied ? 'FRONTEND_RPC_ACCESS_REQUIRED' : rpcErrorText(error)));
+            wrapped.code = denied ? 'FRONTEND_RPC_ACCESS_REQUIRED' : rpcErrorText(error);
+            throw wrapped;
+        }
+        return data;
+    }
+
+    function mapUserRow(row, current = {}) {
+        return {
+            ...current,
+            id: String(row.id || ''),
+            status: String(row.status || 'active'),
+            owner: String(row.owner ?? ''),
+            username: String(row.username || ''),
+            password: String(row.password ?? ''),
+            wechat: String(row.wechat ?? ''),
+            xianyu: String(row.xianyu ?? ''),
+            expiry: String(row.expiry ?? ''),
+            windows: row.windows ?? 0,
+            amount: row.amount ?? '',
+            activeTime: String(row.activeTime ?? row.active_time ?? row.active_date ?? ''),
+            isStarred: Boolean(row.isStarred ?? row.is_starred ?? false),
+            remark: String(row.remark ?? ''),
+            windowTarget: row.windowTarget ?? row.window_target ?? null,
+            windowPaymentLock: row.windowPaymentLock ?? row.window_payment_lock ?? null,
+            pendingDelete: Boolean(row.pendingDelete ?? row.pending_delete ?? false),
+            pendingTaskId: row.pendingTaskId ?? row.pending_task_id ?? null,
+            bitWindowQuota: row.bitWindowQuota ?? row.bit_window_quota ?? null,
+            bitExistingWindows: row.bitExistingWindows ?? row.bit_existing_windows ?? null,
+            bitWindowQuotaUpdatedAt: row.bitWindowQuotaUpdatedAt ?? row.bit_window_quota_updated_at ?? null,
+            billingRevision: row.billingRevision ?? row.billing_revision ?? 0,
+            billingUpdatedAt: row.billingUpdatedAt ?? row.billing_updated_at ?? null,
+            billingUpdateSource: row.billingUpdateSource ?? row.billing_update_source ?? null,
+            billingSyncError: row.billingSyncError ?? row.billing_sync_error ?? '',
+            billingSyncErrorAt: row.billingSyncErrorAt ?? row.billing_sync_error_at ?? null,
+            updatedAt: row.updatedAt ?? row.updated_at ?? null
+        };
+    }
+
+    function applyUserRow(row) {
+        const id = String(row?.id || '');
+        if (!id) return;
+        const current = findRecord(id) || {};
+        for (const key of ['users', 'unused', 'trash']) {
+            db[key] = (db[key] || []).filter(item => String(item.id) !== id);
+        }
+        if (row.tombstone || !visibleOnPage(row)) return;
+        const record = mapUserRow(row, current);
+        const stableRecord = current && current.id ? Object.assign(current, record) : record;
+        if (record.status === 'unused') db.unused.push(stableRecord);
+        else if (record.status === 'trash') db.trash.push(stableRecord);
+        else db.users.push(stableRecord);
+    }
+
+    async function syncUsersV2() {
+        let cursor = numberCursor(usersCursorKey);
+        let pages = 0;
+        let changed = false;
+        do {
+            const result = await callRpc('get_users_since_v2', {
+                p_cursor_change_seq: cursor,
+                p_limit: 500
+            });
+            const rows = Array.isArray(result?.rows) ? result.rows : [];
+            rows.forEach(applyUserRow);
+            changed = changed || rows.length > 0;
+            const next = Number(result?.cursor ?? cursor);
+            if (!Number.isSafeInteger(next) || next < cursor) throw new Error('用户增量游标无效。');
+            cursor = next;
+            localStorage.setItem(usersCursorKey, String(cursor));
+            pages += 1;
+            if (!result?.hasMore) break;
+            if (pages >= 100) throw new Error('用户增量分页超过安全上限。');
+        } while (true);
+        db._syncCursorV2 = cursor;
+        lastKnownUpdatedAt = `SEQ:${cursor}`;
+        localStorage.setItem(STORAGE_KEY + '_version', lastKnownUpdatedAt);
+        persistLocal();
+        return changed;
+    }
+
+    function applyTaskToPage(task) {
+        const id = String(task.sourceRecordId || '');
+        const record = id ? findRecord(id) : null;
+        if (!record) return;
+        const isWindow = String(task.action || '') === 'set_window_quota';
+        if (isWindow) {
+            record.windowJobId = task.id;
+            record.windowTarget = task.targetWindowCount;
+            record.windowSyncAction = task.action;
+            record.windowSyncStatus = task.status;
+            record.windowSyncMessage = task.lastError || task.resultCode || '';
+            record.windowSyncUpdatedAt = task.updatedAt;
+        } else {
+            record.bitJobId = task.id;
+            record.bitSyncAction = task.action;
+            record.bitSyncStatus = task.status;
+            record.bitSyncMessage = task.lastError || task.resultCode || '';
+            record.bitSyncUpdatedAt = task.updatedAt;
+        }
+    }
+
+    function rememberTask(task) {
+        const mapped = { ...task };
+        const source = getTaskCache();
+        const byId = new Map(source.map(item => [String(item.id), item]));
+        byId.set(String(mapped.id), { ...(byId.get(String(mapped.id)) || {}), ...mapped });
+        const nextCache = setTaskCache([...byId.values()].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))));
+        applyTaskToPage(mapped);
+        persistLocal();
+        return nextCache.find(item => String(item.id) === String(mapped.id)) || mapped;
+    }
+
+    async function loadTasksV2() {
+        let cursor = numberCursor(tasksCursorKey);
+        let pages = 0;
+        let terminalChanged = false;
+        const owner = pageOwner() || null;
+        do {
+            const result = await callRpc('get_bit_tasks_since', {
+                p_cursor_change_seq: cursor,
+                p_limit: 500,
+                p_owner: owner
+            });
+            const rows = Array.isArray(result?.rows) ? result.rows : [];
+            for (const row of rows) {
+                rememberTask(row);
+                if (['success', 'resolved', 'cancelled', 'needs_attention'].includes(String(row.status || ''))) terminalChanged = true;
+            }
+            const next = Number(result?.cursor ?? cursor);
+            if (!Number.isSafeInteger(next) || next < cursor) throw new Error('任务增量游标无效。');
+            cursor = next;
+            localStorage.setItem(tasksCursorKey, String(cursor));
+            pages += 1;
+            if (!result?.hasMore) break;
+            if (pages >= 100) throw new Error('任务增量分页超过安全上限。');
+        } while (true);
+        let hiddenValues = [];
+        try { hiddenValues = JSON.parse(localStorage.getItem(hiddenTasksKey) || '[]'); } catch (_) {}
+        const hidden = new Set((Array.isArray(hiddenValues) ? hiddenValues : []).map(String));
+        const visibleTasks = getTaskCache()
+            .filter(task => !hidden.has(String(task.id)) && !task.deletedAt)
+            .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+        setTaskCache(visibleTasks);
+        for (const task of visibleTasks) applyTaskToPage(task);
+        persistLocal();
+        if (terminalChanged && !_isSyncing && !terminalRefreshQueued) {
+            terminalRefreshQueued = true;
+            setTimeout(async () => {
+                try { if (!_isSaving && !_hasPendingSave) await syncUsersV2(); }
+                catch (error) { console.warn('[v2 users] terminal refresh failed:', error.message || error); }
+                finally { terminalRefreshQueued = false; render(); if (typeof renderTrash === 'function') renderTrash(); }
+            }, 0);
+        }
+        return visibleTasks;
+    }
+
+    async function createTask(record, action, options = {}) {
+        if (!record?.id) throw new Error('记录缺少 ID。');
+        const intent = JSON.stringify({
+            action,
+            id: String(record.id),
+            targetWindowCount: options.targetWindowCount ?? null,
+            newUsername: options.newUsername ?? null,
+            targetExpiry: options.targetExpiry ?? null
+        });
+        const requestKey = STORAGE_KEY + ':taskRequest:' + encodeURIComponent(intent);
+        const requestId = localStorage.getItem(requestKey) || uuid();
+        localStorage.setItem(requestKey, requestId);
+        let data;
+        try {
+            data = await callRpc('create_bit_task', {
+                p_action: action,
+                p_source_record_id: String(record.id),
+                p_request_id: requestId,
+                p_target_window_count: options.targetWindowCount ?? null,
+                p_new_username: options.newUsername || null,
+                p_target_expiry: options.targetExpiry || null
+            });
+        } catch (error) {
+            throw error;
+        }
+        if (!data?.ok) {
+            localStorage.removeItem(requestKey);
+            const error = new Error(taskErrorText(data?.code));
+            error.code = data?.code || 'TASK_CREATE_FAILED';
+            error.detail = data;
+            throw error;
+        }
+        localStorage.removeItem(requestKey);
+        const task = rememberTask({
+            ...(data.task || {}),
+            sourceRecordId: String(record.id),
+            sourceOwner: String(record.owner || pageOwner()),
+            targetWindowCount: options.targetWindowCount ?? null,
+            newUsername: options.newUsername || '',
+            updatedAt: new Date().toISOString()
+        });
+        bitIntegrationAvailable = true;
+        bitIntegrationMessage = data.reused ? '已确认现有任务，等待连接器处理' : '任务已写入云端，等待连接器处理';
+        if (typeof refreshBitTaskBadge === 'function') refreshBitTaskBadge();
+        try {
+            await syncUsersV2();
+            baseSnapshot = snapshotMainData();
+        } catch (error) {
+            console.warn('[v2 users] task created but user refresh is pending:', error.message || error);
+        }
+        return task;
+    }
+
+    globalThis.enqueueBitJob = async (record, action, _legacyKey, options = {}) => {
+        const taskOptions = { ...options };
+        if (action === 'recover' && !taskOptions.targetExpiry) taskOptions.targetExpiry = getRenewedExpiry(record);
+        return createTask(record, action, taskOptions);
+    };
+    globalThis.enqueueWindowQuotaTask = async (record, targetWindowCount) =>
+        createTask(record, 'set_window_quota', { targetWindowCount: Number(targetWindowCount) });
+    globalThis.enqueueRestrictedLifecycleTask = async (record, action, options = {}) => {
+        if (action === 'recover' && !options.targetExpiry) options = { ...options, targetExpiry: getRenewedExpiry(record) };
+        return createTask(record, action, options);
+    };
+    globalThis.insertBitTaskToCloud = async () => {
+        throw new Error('旧 bit_tasks 直写入口已停用。');
+    };
+
+    globalThis.cancelBitTask = async taskId => {
+        const localTask = (db.bitTasks || []).find(task => String(task.id) === String(taskId));
+        if (!localTask) return alert('找不到这条任务，请先刷新。');
+        if (!(await showActionConfirm(`确定取消「${localTask.username}」的任务？`, {
+            title: '取消任务', confirmText: '确认取消', danger: true
+        }))) return false;
+        showLoading(true, { blocking: false });
+        try {
+            const data = await callRpc('cancel_bit_task', { p_task_id: String(taskId) });
+            if (!data?.ok) throw new Error(taskErrorText(data?.code));
+            await Promise.all([loadTasksV2(), syncUsersV2()]);
+            render();
+            if (typeof renderTrash === 'function') renderTrash();
+            alert(data.already_cancelled ? '任务此前已经取消。' : '任务已取消。');
+            return true;
+        } catch (error) {
+            alert(`取消任务失败：\n${error.message || error}`);
+            return false;
+        } finally {
+            showLoading(false);
+        }
+    };
+
+    globalThis.clearBitTaskLogs = async () => {
+        const terminal = new Set(['success', 'resolved', 'cancelled']);
+        const ids = (db.bitTasks || []).filter(task => terminal.has(String(task.status))).map(task => String(task.id));
+        if (!ids.length) return alert('当前没有可清除的历史任务日志。');
+        if (!(await showActionConfirm(`确定在本页面隐藏 ${ids.length} 条历史任务？\n\n数据库审计记录不会删除。`, {
+            title: '隐藏历史任务', confirmText: '确认隐藏', danger: true
+        }))) return false;
+        let hiddenValues = [];
+        try { hiddenValues = JSON.parse(localStorage.getItem(hiddenTasksKey) || '[]'); } catch (_) {}
+        const hidden = new Set((Array.isArray(hiddenValues) ? hiddenValues : []).map(String));
+        ids.forEach(id => hidden.add(id));
+        localStorage.setItem(hiddenTasksKey, JSON.stringify([...hidden]));
+        setTaskCache((db.bitTasks || []).filter(task => !hidden.has(String(task.id))));
+        persistLocal();
+        renderBitIntegration();
+        return true;
+    };
+
+    globalThis.loadBitTasksFromCloud = async () => {
+        try { return await loadTasksV2(); }
+        catch (error) {
+            console.error('[v2 tasks] sync failed:', error);
+            bitIntegrationAvailable = false;
+            bitIntegrationMessage = error.message || String(error);
+            return getTaskCache();
+        }
+    };
+
+    globalThis.processExpiredUsers = async () => 0;
+    globalThis.syncFromCloud = async (silent = false) => {
+        if (_isSyncing || (typeof _isClearingBitLogs !== 'undefined' && _isClearingBitLogs)) return false;
+        if (_isSaving || _hasPendingSave) return false;
+        if (silent && typeof hasActiveInlineEdit === 'function' && hasActiveInlineEdit()) return false;
+        _isSyncing = true;
+        if (!silent) showLoading(true, { blocking: false });
+        try {
+            await syncUsersV2();
+            await loadTasksV2();
+            baseSnapshot = snapshotMainData();
+            rebuildActiveConnectors();
+            document.getElementById('syncStatus').innerText = `云端同步 ${beijingTimeString()}`;
+            render();
+            if (typeof renderTrash === 'function') renderTrash();
+            if (typeof renderBitIntegration === 'function') renderBitIntegration();
+            return true;
+        } catch (error) {
+            console.error('[v2 sync] failed:', error);
+            document.getElementById('syncStatus').innerText = '同步失败：' + (error.message || error);
+            if (!silent) alert('同步失败：\n' + (error.message || error));
+            return false;
+        } finally {
+            _isSyncing = false;
+            if (!silent) showLoading(false);
+        }
+    };
+
+    globalThis.activateSlotInCloud = async (slot, activatedUser) => {
+        const data = await callRpc('activate_user_slot', {
+            p_user_id: String(slot?.id || ''),
+            p_expected_updated_at: slot?.updatedAt || slot?.updated_at || null,
+            p_owner: String(activatedUser?.owner || ''),
+            p_windows: Number(activatedUser?.windows || 0),
+            p_amount: String(activatedUser?.amount ?? ''),
+            p_active_time: String(activatedUser?.activeTime || ''),
+            p_expiry: String(activatedUser?.expiry || '')
+        });
+        if (!data?.ok) {
+            const error = new Error(taskErrorText(data?.code || 'ACTIVATION_FAILED'));
+            error.code = data?.code || 'ACTIVATION_FAILED';
+            throw error;
+        }
+        applyUserRow(data.user || { ...activatedUser, status: 'active' });
+        baseSnapshot = snapshotMainData();
+        persistLocal();
+        return findRecord(slot.id) || activatedUser;
+    };
+
+    const saveFields = [
+        ['password', 'password'], ['owner', 'owner'], ['wechat', 'wechat'],
+        ['xianyu', 'xianyu'], ['expiry', 'expiry'], ['windows', 'windows'], ['amount', 'amount'],
+        ['activeTime', 'active_time'], ['isStarred', 'is_starred'], ['remark', 'remark'],
+        ['windowPaymentLock', 'window_payment_lock'], ['billingRevision', 'billing_revision'],
+        ['billingUpdatedAt', 'billing_updated_at'], ['billingUpdateSource', 'billing_update_source']
+    ];
+    const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    const insertPayload = (record, bucket) => ({
+        id: String(record.id || ''), status: statusForBucket[bucket], username: String(record.username || ''),
+        password: String(record.password || ''), owner: String(record.owner ?? '-'), wechat: String(record.wechat ?? '-'),
+        xianyu: String(record.xianyu ?? '-'), expiry: String(record.expiry ?? ''), windows: Number(record.windows ?? 0),
+        amount: record.amount ?? '', active_time: String(record.activeTime || ''), is_starred: Boolean(record.isStarred),
+        remark: String(record.remark || '')
+    });
+    const changesFor = (base, record, fromBucket, toBucket) => {
+        const changes = {};
+        for (const [client, cloud] of saveFields) if (!same(base?.[client], record?.[client])) changes[cloud] = record?.[client] ?? null;
+        if (fromBucket !== toBucket) changes.status = statusForBucket[toBucket];
+        return changes;
+    };
+    const replaceSnapshotRecord = (state, record, bucket) => {
+        for (const key of ['users', 'unused', 'trash']) state[key] = (state[key] || []).filter(row => String(row.id) !== String(record.id));
+        state[bucket].push(JSON.parse(JSON.stringify(record)));
+    };
+
+    globalThis._doSaveToCloud = async () => {
+        if (_isSaving) return { ok: false, busy: true };
+        if (!_hasPendingSave) return { ok: saveFailureCount === 0, failedIds: [] };
+        const revision = _saveRevision;
+        const payload = snapshotMainData();
+        const base = baseSnapshot || { users: [], unused: [], trash: [] };
+        const nextBase = snapshotMainData(base);
+        _isSaving = true;
+        _hasPendingSave = false;
+        const statusEl = document.getElementById('syncStatus');
+        statusEl.innerText = '正在上传...';
+        const failed = [];
+        const saved = [];
+        let conflictBlocked = false;
+        try {
+            for (const bucket of ['users', 'unused', 'trash']) {
+                for (const record of payload[bucket] || []) {
+                    const id = String(record.id || '');
+                    let baseRecord = null;
+                    for (const key of ['users', 'unused', 'trash']) {
+                        baseRecord = (base[key] || []).find(row => String(row.id) === id) || baseRecord;
+                    }
+                    const fromBucket = bucketName(base, id);
+                    const changes = baseRecord ? changesFor(baseRecord, record, fromBucket, bucket) : null;
+                    const needsWrite = !baseRecord || Object.keys(changes).length > 0 || record._dirty;
+                    if (!needsWrite) continue;
+                    try {
+                        let savedRecord = record;
+                        if (!baseRecord) {
+                            const { error } = await supabaseClient.rpc('insert_user_anon', { p_user: insertPayload(record, bucket) });
+                            if (error) throw error;
+                        } else if (Object.keys(changes).length) {
+                            let data = await callRpc('save_user_changes_v2', {
+                                p_user_id: id,
+                                p_changes: changes,
+                                p_expected_updated_at: baseRecord.updatedAt || baseRecord.updated_at || null
+                            });
+                            if (!data?.ok && data?.code === 'USER_STATE_CONFLICT' && data.user) {
+                                const cloudRecord = mapUserRow(data.user, baseRecord);
+                                replaceSnapshotRecord(nextBase, cloudRecord, bucketName({
+                                    users: data.user.status === 'active' ? [cloudRecord] : [],
+                                    unused: data.user.status === 'unused' ? [cloudRecord] : [],
+                                    trash: data.user.status === 'trash' ? [cloudRecord] : []
+                                }, id) || bucket);
+                                data = await callRpc('save_user_changes_v2', {
+                                    p_user_id: id,
+                                    p_changes: changes,
+                                    p_expected_updated_at: cloudRecord.updatedAt || cloudRecord.updated_at || null
+                                });
+                            }
+                            if (!data?.ok) {
+                                const saveError = new Error(taskErrorText(data?.code || 'SAVE_FAILED'));
+                                saveError.nonRetryable = data?.code === 'USER_STATE_CONFLICT';
+                                throw saveError;
+                            }
+                            if (data.user) {
+                                savedRecord = mapUserRow(data.user, record);
+                                Object.assign(record, savedRecord);
+                            }
+                        }
+                        saved.push(id);
+                        replaceSnapshotRecord(nextBase, savedRecord, bucket);
+                    } catch (error) {
+                        console.error('[save] record failed:', id, error);
+                        conflictBlocked = conflictBlocked || error?.nonRetryable === true;
+                        failed.push(id);
+                    }
+                }
+            }
+            baseSnapshot = nextBase;
+            saveFailureCount = failed.length;
+            for (const id of saved) {
+                const live = findRecord(id);
+                if (live && revision === _saveRevision) delete live._dirty;
+            }
+            _hasPendingSave = failed.length > 0 || revision !== _saveRevision;
+            persistLocal();
+            if (failed.length) {
+                statusEl.innerText = conflictBlocked
+                    ? `保存冲突：${failed.length} 条，请刷新或再次保存`
+                    : `部分保存失败：${failed.length} 条，正在重试`;
+            } else if (_hasPendingSave) {
+                statusEl.innerText = '继续上传后续修改...';
+            } else {
+                statusEl.innerText = `已同步 ${beijingTimeString()}`;
+            }
+            return { ok: failed.length === 0, failedIds: failed, savedIds: saved };
+        } catch (error) {
+            saveFailureCount = Math.max(1, failed.length);
+            _hasPendingSave = true;
+            statusEl.innerText = '网络失败，修改仍保留待重试';
+            return { ok: false, failedIds: failed, error };
+        } finally {
+            _isSaving = false;
+            if (_hasPendingSave && !conflictBlocked) scheduleCloudSave(5000);
+        }
+    };
+
+    globalThis.waitForPaidSave = async (timeoutMs = 30000) => {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+            if (!_isSaving && _hasPendingSave) {
+                clearTimeout(_saveTimer);
+                _saveTimer = null;
+                const result = await _doSaveToCloud();
+                if (!result.ok && result.failedIds?.length) return false;
+            }
+            if (!_isSaving && !_hasPendingSave) return saveFailureCount === 0;
+            await sleep(120);
+        }
+        return false;
+    };
+
+    globalThis.getRenewedExpiry = record => {
+        const today = beijingDateString();
+        const current = normalizedDate(record?.expiry);
+        const base = current && current > today ? current : today;
+        const target = new Date(`${base}T00:00:00Z`);
+        target.setUTCDate(target.getUTCDate() + 30);
+        return target.toISOString().slice(0, 10);
+    };
+
+    if (typeof activate === 'function' && typeof _activatingIds !== 'undefined') {
+        const originalActivate = activate;
+        globalThis.activate = async id => {
+            try { return await originalActivate(id); }
+            finally { _activatingIds.delete(String(id)); }
+        };
+    }
+
+    globalThis.permanentlyDelete = async id => {
+        const record = (db.trash || []).find(row => String(row.id) === String(id));
+        if (!record) return false;
+        if (!(await showActionConfirm(`确定删除「${record.username}」？\n\n员工号与账号记录会在联动任务成功后一起删除。`, {
+            title: '删除确认', confirmText: '确认删除', danger: true
+        }))) return false;
+        showLoading(true, { blocking: false });
+        try {
+            await createTask(record, 'delete');
+            await syncUsersV2();
+            render();
+            if (typeof renderTrash === 'function') renderTrash();
+            return true;
+        } catch (error) {
+            alert('删除任务创建失败：\n' + (error.message || error));
+            return false;
+        } finally {
+            showLoading(false);
+        }
+    };
+
+    let lastTaskPollAt = Date.now();
+    const taskIsActive = task => ['routing_required', 'pending', 'processing', 'retry_wait',
+        'execution_succeeded', 'writeback_pending'].includes(String(task?.status || ''));
+    setInterval(() => {
+        if (document.visibilityState !== 'visible') return;
+        const now = Date.now();
+        const hasActiveTask = getTaskCache().some(taskIsActive);
+        if (now - lastTaskPollAt < (hasActiveTask ? 5000 : 30000)) return;
+        lastTaskPollAt = now;
+        loadTasksV2().then(() => renderBitIntegration()).catch(error => {
+            console.warn('[v2 tasks] background poll failed:', error.message || error);
+        });
+    }, 5000);
+})();
+/* FRONTEND_V2_RUNTIME_END */
+
 (function initLoad() {
     const local = localStorage.getItem(STORAGE_KEY);
     if (local) {
@@ -2701,19 +3352,7 @@ function showLoading(s, options = {}) {
 })();
 
 window.addEventListener('beforeunload', () => {
-    const payload = buildMainDataPayload();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    if (_hasPendingSave && lastKnownUpdatedAt && lastKnownUpdatedAt !== 'FRESH') {
-        const now = new Date().toISOString();
-        const query = new URLSearchParams({ id:'eq.1', updated_at:`eq.${lastKnownUpdatedAt}` });
-        try {
-            fetch(`${SUPABASE_URL}/rest/v1/MainData?${query}`, {
-                method:'PATCH', keepalive:true,
-                headers:{ apikey:SUPABASE_KEY, Authorization:`Bearer ${SUPABASE_KEY}`, 'Content-Type':'application/json', Prefer:'return=minimal' },
-                body:JSON.stringify({ content:payload, updated_at:now })
-            });
-        } catch (e) {}
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(buildMainDataPayload()));
 });
 setInterval(() => {
     if (document.visibilityState === 'visible' && (document.hasFocus ? document.hasFocus() : true)) {
