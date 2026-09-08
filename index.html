@@ -77,8 +77,8 @@
   .trash-drawer { position: fixed; right: -720px; top: 0; width: 720px; max-width: 95vw; height: 100%; background: var(--surface); border-left: 1px solid var(--border); transition: 0.3s; z-index: 101; padding: 20px; box-shadow: -10px 0 30px rgba(0,0,0,0.8); display: flex; flex-direction: column; }
   .trash-drawer.open { right: 0; }
   .trash-list-wrap { flex: 1; overflow-y: auto; overflow-x: hidden; margin-top: 10px; }
-  .trash-row { display:grid; grid-template-columns:1.35fr .8fr 1fr .9fr .7fr 88px 66px; align-items:center; background:var(--surface2); border:1px solid var(--border); padding:8px 12px; border-radius:6px; margin-bottom:6px; font-size:11px; gap:8px; }
-  .trash-header { display:grid; grid-template-columns:1.35fr .8fr 1fr .9fr .7fr 88px 66px; padding:0 12px 8px; color:var(--text3); font-size:10px; gap:8px; }
+  .trash-row { display:grid; grid-template-columns:1.35fr 1fr .9fr .7fr 88px 66px; align-items:center; background:var(--surface2); border:1px solid var(--border); padding:8px 12px; border-radius:6px; margin-bottom:6px; font-size:11px; gap:8px; }
+  .trash-header { display:grid; grid-template-columns:1.35fr 1fr .9fr .7fr 88px 66px; padding:0 12px 8px; color:var(--text3); font-size:10px; gap:8px; }
   .trash-val { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .trash-status { display:flex; justify-content:center; min-width:0; }
   
@@ -165,14 +165,13 @@
     .user-table .star-btn { margin-right:2px; }
     .trash-drawer { right:-100vw; width:100vw; max-width:100vw; padding:12px 8px; }
     .trash-header { display:none; }
-    .trash-row { grid-template-columns:minmax(88px,1.3fr) 62px minmax(75px,1fr) 72px; gap:4px; }
+    .trash-row { grid-template-columns:minmax(100px,1.4fr) minmax(75px,1fr) 72px; gap:4px; }
     .trash-col-user { grid-column:1; grid-row:1; }
-    .trash-col-window { grid-column:2; grid-row:1; }
-    .trash-col-wechat { grid-column:3; grid-row:1; }
-    .trash-actions { grid-column:4; grid-row:1; }
+    .trash-col-wechat { grid-column:2; grid-row:1; }
+    .trash-actions { grid-column:3; grid-row:1; }
     .trash-col-expiry { grid-column:1; grid-row:2; }
     .trash-col-amount { grid-column:2; grid-row:2; }
-    .trash-status { grid-column:3 / span 2; grid-row:2; justify-content:flex-end; }
+    .trash-status { grid-column:3; grid-row:2; justify-content:flex-end; }
     .trash-row .btn { padding:3px 6px; font-size:9px; }
   }
 </style>
@@ -229,7 +228,7 @@
     <button class="btn btn-ghost" onclick="toggleTrash(false)">关闭</button>
   </div>
   <div class="trash-header">
-    <div class="trash-col-user">用户名</div><div class="trash-col-window">窗口</div><div class="trash-col-wechat">微信</div><div class="trash-col-expiry">到期(月日)</div><div class="trash-col-amount">金额</div><div>状态</div><div>操作</div>
+    <div class="trash-col-user">用户名</div><div class="trash-col-wechat">微信</div><div class="trash-col-expiry">到期(月日)</div><div class="trash-col-amount">金额</div><div>状态</div><div>操作</div>
   </div>
   <div class="trash-list-wrap" id="trashList"></div>
 </div>
@@ -1543,7 +1542,9 @@ function renderBitIntegration() {
             <div>${escapeHtml(updated)}</div>
             <div>${Number(task.attempts || 0)} 次</div>
             <div class="bit-job-message" title="${escapeHtml(message)}">${escapeHtml(message)}</div>
-            <div>-</div>
+            <div>${status === 'needs_attention' && String(task.action || '') === 'delete'
+                ? `<button class="bit-cancel-btn" onclick="confirmManualExternalDelete(decodeURIComponent('${encodeURIComponent(String(task.id || '')).replace(/'/g, '%27')}'), decodeURIComponent('${encodeURIComponent(String(task.username || '')).replace(/'/g, '%27')}'))">确认已手工删除</button>`
+                : '-'}</div>
         </div>`;
     }).join('');
     jobList.innerHTML = `<div class="bit-job-row bit-job-header"><div>员工号</div><div>微信</div><div>动作</div><div>状态</div><div>更新时间</div><div>尝试</div><div>结果/错误</div><div>操作</div></div>` +
@@ -2387,12 +2388,10 @@ function renderTrash() {
     const list = document.getElementById('trashList');
     const orgTrash = db.trash.filter(isTargetOwnerRecord);
     list.innerHTML = orgTrash.map(u => {
-      const windowUsage = escapeHtml(formatBitWindowUsage(u));
       const bitBadge = bitBadgeForRecord(u);
       return `
         <div class="trash-row">
             <div class="trash-val trash-col-user"><b>${escapeHtml(u.username)}</b></div>
-            <div class="trash-val trash-col-window" title="${windowUsage}">${windowUsage}</div>
             <div class="trash-val trash-col-wechat">${escapeHtml(u.wechat || '-')}</div>
             <div class="trash-val trash-col-expiry" style="color:var(--accent)">${escapeHtml((u.expiry||'').slice(5))}</div>
             <div class="trash-val trash-col-amount">¥${escapeHtml(cleanAmount(u.amount, '0'))}</div>
@@ -2739,10 +2738,16 @@ function showLoading(s, options = {}) {
 
 
 
+
+
+
+
+
+
 /* FRONTEND_V2_RUNTIME_START */
 (function installFrontendV2Runtime() {
     'use strict';
-    const schemaVersion = '2026-09-08.6';
+    const schemaVersion = '2026-09-09.1';
     const usersCursorKey = STORAGE_KEY + ':usersCursor';
     const tasksCursorKey = STORAGE_KEY + ':tasksCursor';
     const schemaKey = STORAGE_KEY + ':runtimeSchema';
@@ -2759,8 +2764,9 @@ function showLoading(s, options = {}) {
         localStorage.removeItem(usersCursorKey);
         localStorage.removeItem(tasksCursorKey);
         localStorage.removeItem(STORAGE_KEY + '_version');
-        db.bitTasks = [];
-        if (typeof _bitTaskCache !== 'undefined') _bitTaskCache = [];
+        // A schema upgrade must never blank the audit list while the full feed reloads.
+        // Legacy "clear logs" only hid local rows, so remove that filter and rehydrate.
+        localStorage.removeItem(hiddenTasksKey);
         localStorage.setItem(schemaKey, schemaVersion);
     }
 
@@ -2858,6 +2864,10 @@ function showLoading(s, options = {}) {
         SLOT_BLOCKED: '该名额仍有关联任务，暂时不能激活。',
         USER_NOT_FOUND: '云端找不到该账号。',
         INVALID_USER_CHANGE: '本次修改包含不允许的字段。',
+        INVALID_MANUAL_DELETE_CONFIRMATION: '手工删除确认参数不完整，请刷新后重试。',
+        MANUAL_DELETE_NOT_ALLOWED: '只有“需人工处理”的手动删除任务才能这样确认。',
+        MANUAL_DELETE_STATE_CONFLICT: '账号或任务状态已变化，未执行网页删除。',
+        MANUAL_DELETE_USERNAME_MISMATCH: '账号用户名与确认内容不一致，未执行网页删除。',
         FRONTEND_RPC_ACCESS_REQUIRED: '数据库尚未开放前端 v2 RPC，请先执行 frontend_v2_rpc_access.sql。'
     }[String(code || '')] || String(code || '云端操作失败。'));
 
@@ -3009,11 +3019,9 @@ function showLoading(s, options = {}) {
             if (!result?.hasMore) break;
             if (pages >= 100) throw new Error('任务增量分页超过安全上限。');
         } while (true);
-        let hiddenValues = [];
-        try { hiddenValues = JSON.parse(localStorage.getItem(hiddenTasksKey) || '[]'); } catch (_) {}
-        const hidden = new Set((Array.isArray(hiddenValues) ? hiddenValues : []).map(String));
+        localStorage.removeItem(hiddenTasksKey);
         const visibleTasks = getTaskCache()
-            .filter(task => !hidden.has(String(task.id)) && !task.deletedAt)
+            .filter(task => !task.deletedAt)
             .sort(taskStableCompare);
         setTaskCache(visibleTasks);
         for (const task of visibleTasks) applyTaskToPage(task);
@@ -3186,21 +3194,52 @@ function showLoading(s, options = {}) {
     };
 
     globalThis.clearBitTaskLogs = async () => {
-        const terminal = new Set(['success', 'resolved', 'cancelled']);
-        const ids = (db.bitTasks || []).filter(task => terminal.has(String(task.status))).map(task => String(task.id));
-        if (!ids.length) return alert('当前没有可清除的历史任务日志。');
-        if (!(await showActionConfirm(`确定在本页面隐藏 ${ids.length} 条历史任务？\n\n数据库审计记录不会删除。`, {
-            title: '隐藏历史任务', confirmText: '确认隐藏', danger: true
-        }))) return false;
-        let hiddenValues = [];
-        try { hiddenValues = JSON.parse(localStorage.getItem(hiddenTasksKey) || '[]'); } catch (_) {}
-        const hidden = new Set((Array.isArray(hiddenValues) ? hiddenValues : []).map(String));
-        ids.forEach(id => hidden.add(id));
-        localStorage.setItem(hiddenTasksKey, JSON.stringify([...hidden]));
-        setTaskCache((db.bitTasks || []).filter(task => !hidden.has(String(task.id))));
-        persistLocal();
-        renderBitIntegration();
-        return true;
+        localStorage.removeItem(hiddenTasksKey);
+        alert('任务记录是审计历史，网页端不会再清空或隐藏。');
+        return false;
+    };
+
+    const findManualDeleteTask = record => {
+        const pendingId = String(record?.pendingTaskId || record?.pending_task_id || '');
+        return getTaskCache().find(task =>
+            String(task?.status || '') === 'needs_attention' &&
+            String(task?.action || '') === 'delete' &&
+            String(task?.sourceRecordId || task?.source_record_id || '') === String(record?.id || '') &&
+            (!pendingId || String(task?.id || '') === pendingId)
+        ) || null;
+    };
+
+    globalThis.confirmManualExternalDelete = async (taskId, expectedUsername) => {
+        const task = getTaskCache().find(item => String(item?.id || '') === String(taskId || ''));
+        const record = task ? findRecord(task.sourceRecordId || task.source_record_id) : null;
+        const username = String(expectedUsername || record?.username || task?.username || '').trim();
+        if (!task || !record || task.status !== 'needs_attention' || task.action !== 'delete') {
+            alert('这条任务已变化，请先刷新后重试。');
+            return false;
+        }
+        if (!(await showActionConfirm(
+            `仅在你已从 BitBrowser 手工删除员工号「${username}」及其全部窗口后确认。\n\n确认后网页账号会永久删除，原任务保留为“已解决”审计记录。`,
+            { title: '确认手工删除结果', confirmText: '确认已手工删除', danger: true }
+        ))) return false;
+        showLoading(true, { blocking: false });
+        try {
+            const data = await callRpc('confirm_manual_delete_v2', {
+                p_task_id: String(task.id),
+                p_expected_username: username
+            });
+            if (!data?.ok) throw new Error(taskErrorText(data?.code));
+            await Promise.all([syncUsersV2(), loadTasksV2()]);
+            render();
+            if (typeof renderTrash === 'function') renderTrash();
+            if (typeof renderBitIntegration === 'function') renderBitIntegration();
+            alert(data.alreadyConfirmed ? '该手工删除结果此前已经确认。' : '网页账号已删除；原任务已保留为“已解决”。');
+            return true;
+        } catch (error) {
+            alert(`确认手工删除失败：\n${error.message || error}`);
+            return false;
+        } finally {
+            showLoading(false);
+        }
     };
 
     globalThis.loadBitTasksFromCloud = async () => {
@@ -3644,6 +3683,18 @@ function showLoading(s, options = {}) {
     globalThis.permanentlyDelete = async id => {
         const record = (db.trash || []).find(row => String(row.id) === String(id));
         if (!record) return false;
+        let manualTask = findManualDeleteTask(record);
+        if (!manualTask && record.pendingDelete && record.pendingTaskId) {
+            try { await loadTasksV2(); } catch (_) {}
+            manualTask = findManualDeleteTask(record);
+        }
+        if (manualTask) {
+            return globalThis.confirmManualExternalDelete(manualTask.id, record.username);
+        }
+        if (record.pendingDelete && record.pendingTaskId) {
+            alert('关联任务尚未同步完成，请检查网络后刷新页面再试。网页没有创建重复删除任务。');
+            return false;
+        }
         if (!(await showActionConfirm(`确定删除「${record.username}」？\n\n员工号与账号记录会在联动任务成功后一起删除。`, {
             title: '删除确认', confirmText: '确认删除', danger: true
         }))) return false;
