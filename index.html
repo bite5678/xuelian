@@ -6,8 +6,8 @@
 <title>雪莲-用户管理系统</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script src="https://pay.bite5678.fun/payment/payment-client.js?v=20260810-window-lock"></script>
-<script src="https://pay.bite5678.fun/payment/window-payment-flow.js?v=20260810-window-lock"></script>
+<script src="https://pay.bite5678.fun/payment/payment-client.js?v=20260908-v2"></script>
+<script src="https://pay.bite5678.fun/payment/window-payment-flow.js?v=20260908-v2"></script>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -228,7 +228,7 @@
   <div class="modal" style="width:min(540px, calc(100vw - 24px));">
     <h3 style="font-size:16px; color:var(--accent); margin-bottom:8px;">修改窗口</h3>
     <div id="windowChangeUser" style="font-size:12px; color:#fff; margin-bottom:10px; white-space:pre-line;"></div>
-    <input id="windowChangeInput" class="edit-input" inputmode="numeric" autocomplete="off" placeholder="例如：100、50、150；100口内只能 50 或 100" oninput="updateWindowChangePreview()">
+    <input id="windowChangeInput" class="edit-input" inputmode="numeric" autocomplete="off" placeholder="例如：150、50、+50 或 -50" oninput="updateWindowChangePreview()">
     <div style="font-size:11px; color:#aab2c2; margin-top:7px;">不带符号＝修改后的总窗口数；带 + / - ＝在当前窗口数上增减。</div>
     <div id="windowChangePreview" style="font-size:12px; color:var(--accent); margin-top:10px; min-height:18px;"></div>
     <div class="window-change-warning" style="font-size:21px; color:#fff; line-height:1.55; margin-top:12px;">
@@ -389,7 +389,7 @@ function recordMonthlyAmountCents(record, allowZero = false) {
 }
 
 function formatMoneyCents(cents) {
-    return String(Number((Number(cents) / 100).toFixed(2)));
+    return (Number(cents) / 100).toFixed(2);
 }
 function cleanAmount(v, fallback) {
   if (v === null || v === undefined || v === '') return fallback === undefined ? '' : fallback;
@@ -411,10 +411,10 @@ const BIT_CONNECTOR_RETENTION_MS = 24 * 60 * 60 * 1000;
 const BIT_CONNECTOR_PRUNABLE_TASK_STATUSES = new Set(['routing_required', 'pending', 'processing', 'retry_wait', 'execution_succeeded', 'writeback_pending', 'needs_attention']);
 const BIT_WINDOW_QUOTA_ACTION = 'set_window_quota';
 const BIT_WINDOW_ACTIVE_STATUSES = new Set(['routing_required','pending','processing','retry_wait','execution_succeeded','writeback_pending','needs_attention']);
-const BIT_PENDING_STATUSES = new Set(['routing_required','pending','processing','retry_wait']);
+const BIT_PENDING_STATUSES = new Set(['routing_required', 'pending', 'processing', 'retry_wait', 'execution_succeeded', 'writeback_pending']);
 const BIT_STATUS_LABELS = {
     routing_required:'等待前缀路由', pending:'待执行', processing:'执行中', retry_wait:'等待重试',
-    execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', success: '已完成', needs_attention:'需人工处理', resolved:'已解决', cancelled:'已取消'
+    execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', success: '已完成', needs_attention:'需人工处理', resolved:'已解决', cancelled:'已取消'
 };
 const BIT_ACTION_LABELS = {
     disable:'停用员工号', enable:'启用员工号', recover:'恢复员工号', delete:'删除员工号', set_window_quota:'修改窗口数'
@@ -1607,7 +1607,7 @@ async function loadBitTasksFromCloud(force = false) {
             completedAt: r.completed_at || r.completedAt || null
         });
         const merged = [...(historyData || []).map(mapRow), ...(activeData || []).map(mapRow)];
-        _bitTaskCache = merged.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+        _bitTaskCache = merged.sort(bitTaskStableCompare);
         return _bitTaskCache;
     } catch (e) { console.warn('[bit_tasks] 读取异常:', e.message || e); return _bitTaskCache || []; }
 }
@@ -1693,6 +1693,8 @@ async function insertOperationLogToCloud(log) {
 }
 
 async function openBitLinkModal() {
+    const _taskSearch = document.getElementById('bitJobSearchInput');
+    if (_taskSearch) _taskSearch.value = '';
     document.getElementById('bitLinkModal').classList.add('open');
     try {
         await Promise.all([loadBitTasksFromCloud(true), syncConnectors(false)]);
@@ -1821,7 +1823,7 @@ function saveToCloud(silent = false) {
         const activeTasks = (db.bitTasks || []).filter(task => !terminalStatuses.has(String(task.status || '')));
         const terminalTasks = (db.bitTasks || [])
             .filter(task => terminalStatuses.has(String(task.status || '')))
-            .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
+            .sort(bitTaskStableCompare)
             .slice(0, 300);
         db.bitTasks = [...activeTasks, ...terminalTasks];
     }
@@ -2699,10 +2701,28 @@ function showLoading(s, options = {}) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /* FRONTEND_V2_RUNTIME_START */
 (function installFrontendV2Runtime() {
     'use strict';
-    const schemaVersion = '2026-09-08.4';
+    const schemaVersion = '2026-09-08.6';
     const usersCursorKey = STORAGE_KEY + ':usersCursor';
     const tasksCursorKey = STORAGE_KEY + ':tasksCursor';
     const schemaKey = STORAGE_KEY + ':runtimeSchema';
@@ -2711,12 +2731,16 @@ function showLoading(s, options = {}) {
     let terminalRefreshQueued = false;
     let usersSyncPromise = null;
     let tasksSyncPromise = null;
+    let connectorsSyncPromise = null;
+    let lastConnectorsSyncAt = 0;
 
     globalThis.__ownerSplitLoaded = true;
     if (localStorage.getItem(schemaKey) !== schemaVersion) {
         localStorage.removeItem(usersCursorKey);
         localStorage.removeItem(tasksCursorKey);
         localStorage.removeItem(STORAGE_KEY + '_version');
+        db.bitTasks = [];
+        if (typeof _bitTaskCache !== 'undefined') _bitTaskCache = [];
         localStorage.setItem(schemaKey, schemaVersion);
     }
 
@@ -2731,6 +2755,16 @@ function showLoading(s, options = {}) {
         db.bitTasks = value;
         return value;
     };
+    const taskIsPending = task => ['routing_required', 'pending', 'processing', 'retry_wait',
+        'execution_succeeded', 'writeback_pending'].includes(String(task?.status || ''));
+    const taskStableCompare = (a, b) => {
+        const rank = task => taskIsPending(task) ? 0 : (String(task?.status || '') === 'needs_attention' ? 1 : 2);
+        const rankDelta = rank(a) - rank(b);
+        if (rankDelta) return rankDelta;
+        const createdDelta = String(b?.createdAt || b?.created_at || '').localeCompare(String(a?.createdAt || a?.created_at || ''));
+        return createdDelta || String(a?.id || '').localeCompare(String(b?.id || ''));
+    };
+    globalThis.bitTaskStableCompare = taskStableCompare;
     const beijingTimeString = () => {
         if (typeof getBeijingTimeString === 'function') return getBeijingTimeString();
         return new Intl.DateTimeFormat('zh-CN', {
@@ -2925,7 +2959,7 @@ function showLoading(s, options = {}) {
         const source = getTaskCache();
         const byId = new Map(source.map(item => [String(item.id), item]));
         byId.set(String(mapped.id), { ...(byId.get(String(mapped.id)) || {}), ...mapped });
-        const nextCache = setTaskCache([...byId.values()].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))));
+        const nextCache = setTaskCache([...byId.values()].sort(taskStableCompare));
         applyTaskToPage(mapped);
         persistLocal();
         return nextCache.find(item => String(item.id) === String(mapped.id)) || mapped;
@@ -2960,7 +2994,7 @@ function showLoading(s, options = {}) {
         const hidden = new Set((Array.isArray(hiddenValues) ? hiddenValues : []).map(String));
         const visibleTasks = getTaskCache()
             .filter(task => !hidden.has(String(task.id)) && !task.deletedAt)
-            .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+            .sort(taskStableCompare);
         setTaskCache(visibleTasks);
         for (const task of visibleTasks) applyTaskToPage(task);
         persistLocal();
@@ -2981,6 +3015,64 @@ function showLoading(s, options = {}) {
         }
         return tasksSyncPromise;
     }
+
+    function applyConnectorSnapshot(result) {
+        const rows = Array.isArray(result?.connectors) ? result.connectors : [];
+        db.bitConnectors = rows.map(row => ({
+            id: String(row.id || ''),
+            displayName: String(row.displayName || row.display_name || row.id || '连接器'),
+            accountPrefix: String(row.accountPrefix || row.account_prefix || ''),
+            prefixes: Array.isArray(row.prefixes) ? row.prefixes.map(String) : [],
+            manualAccounts: Array.isArray(row.manualAccounts) ? row.manualAccounts.map(String) : [],
+            enabled: row.enabled !== false,
+            lastSeen: row.lastSeen || row.last_seen || null,
+            updatedAt: row.usageUpdatedAt || row.updated_at || null
+        })).filter(row => row.id);
+        const heartbeatRows = rows.filter(row => row?.id && (row.lastSeen || row.last_seen)).map(row => [
+            String(row.id), { connector_id: String(row.id), last_seen: row.lastSeen || row.last_seen }
+        ]);
+        const usageRows = rows.filter(row => row?.id).map(row => [String(row.id), {
+            connector_id: String(row.id),
+            used_windows: row.usedWindows ?? row.used_windows ?? null,
+            total_windows: row.totalWindows ?? row.total_windows ?? null,
+            used_employees: row.usedEmployees ?? row.used_employees ?? null,
+            total_employees: row.totalEmployees ?? row.total_employees ?? null,
+            updated_at: row.usageUpdatedAt ?? row.usage_updated_at ?? null
+        }]);
+        if (typeof connectorHeartbeatById !== 'undefined') connectorHeartbeatById = new Map(heartbeatRows);
+        else globalThis.connectorHeartbeatById = new Map(heartbeatRows);
+        if (typeof connectorUsageById !== 'undefined') connectorUsageById = new Map(usageRows);
+        else globalThis.connectorUsageById = new Map(usageRows);
+        rebuildActiveConnectors();
+        return rows;
+    }
+
+    async function syncConnectorsV2Once(force = false) {
+        if (!force && Date.now() - lastConnectorsSyncAt < 60000 && (db.bitConnectors || []).length) {
+            return db.bitConnectors;
+        }
+        const result = await callRpc('get_frontend_connectors_v2', {});
+        if (!result?.ok || !Array.isArray(result.connectors)) throw new Error('连接器快照格式错误。');
+        lastConnectorsSyncAt = Date.now();
+        const rows = applyConnectorSnapshot(result);
+        bitIntegrationAvailable = true;
+        bitIntegrationMessage = '任务与连接器心跳均使用独立云端通道';
+        if (typeof refreshBitIntegrationLight === 'function') await refreshBitIntegrationLight();
+        else if (typeof renderBitIntegration === 'function') renderBitIntegration();
+        if (typeof renderUsageStats === 'function') renderUsageStats();
+        return rows;
+    }
+
+    function syncConnectorsV2(force = false) {
+        if (!connectorsSyncPromise) {
+            connectorsSyncPromise = syncConnectorsV2Once(force).finally(() => { connectorsSyncPromise = null; });
+        }
+        return connectorsSyncPromise;
+    }
+    globalThis.syncConnectors = async () => {
+        try { await syncConnectorsV2(true); return true; }
+        catch (error) { console.warn('[v2 connectors] sync failed:', error.message || error); return false; }
+    };
 
     async function createTask(record, action, options = {}) {
         if (!record?.id) throw new Error('记录缺少 ID。');
@@ -3109,18 +3201,19 @@ function showLoading(s, options = {}) {
         _isSyncing = true;
         if (!silent) showLoading(true, { blocking: false });
         try {
-            await syncUsersV2();
-            await loadTasksV2();
+            await Promise.all([syncUsersV2(), loadTasksV2(), syncConnectorsV2()]);
             baseSnapshot = snapshotMainData();
             rebuildActiveConnectors();
-            document.getElementById('syncStatus').innerText = `云端同步 ${beijingTimeString()}`;
+            const statusEl = document.getElementById('syncStatus');
+            if (statusEl) statusEl.innerText = `✅ 云端同步 ${beijingTimeString()}`;
             render();
             if (typeof renderTrash === 'function') renderTrash();
             if (typeof renderBitIntegration === 'function') renderBitIntegration();
             return true;
         } catch (error) {
             console.error('[v2 sync] failed:', error);
-            document.getElementById('syncStatus').innerText = '同步失败：' + (error.message || error);
+            const statusEl = document.getElementById('syncStatus');
+            if (statusEl) statusEl.innerText = '同步失败：' + (error.message || error);
             if (!silent) alert('同步失败：\n' + (error.message || error));
             return false;
         } finally {
@@ -3150,6 +3243,26 @@ function showLoading(s, options = {}) {
         return findRecord(slot.id) || activatedUser;
     };
 
+    globalThis.renewUserInCloud = async (record, targetExpiry, originalExpiry = null) => {
+        const expectedExpiry = String(originalExpiry || record?.expiry || '');
+        const data = await callRpc('renew_user_v2', {
+            p_user_id: String(record?.id || ''),
+            p_expected_expiry: expectedExpiry,
+            p_target_expiry: String(targetExpiry || ''),
+            p_expected_updated_at: null
+        });
+        if (!data?.ok) {
+            if (data?.user) applyUserRow(data.user);
+            const error = new Error(taskErrorText(data?.code || 'RENEWAL_FAILED'));
+            error.code = data?.code || 'RENEWAL_FAILED';
+            throw error;
+        }
+        applyUserRow(data.user);
+        baseSnapshot = snapshotMainData();
+        persistLocal();
+        return findRecord(record.id);
+    };
+
     const saveFields = [
         ['password', 'password'], ['owner', 'owner'], ['wechat', 'wechat'],
         ['xianyu', 'xianyu'], ['expiry', 'expiry'], ['windows', 'windows'], ['amount', 'amount'],
@@ -3165,10 +3278,9 @@ function showLoading(s, options = {}) {
         amount: record.amount ?? '', active_time: String(record.activeTime || ''), is_starred: Boolean(record.isStarred),
         remark: String(record.remark || '')
     });
-    const changesFor = (base, record, fromBucket, toBucket) => {
+    const changesFor = (base, record) => {
         const changes = {};
         for (const [client, cloud] of saveFields) if (!same(base?.[client], record?.[client])) changes[cloud] = record?.[client] ?? null;
-        if (fromBucket !== toBucket) changes.status = statusForBucket[toBucket];
         return changes;
     };
     const replaceSnapshotRecord = (state, record, bucket) => {
@@ -3199,7 +3311,7 @@ function showLoading(s, options = {}) {
                         baseRecord = (base[key] || []).find(row => String(row.id) === id) || baseRecord;
                     }
                     const fromBucket = bucketName(base, id);
-                    const changes = baseRecord ? changesFor(baseRecord, record, fromBucket, bucket) : null;
+                    const changes = baseRecord ? changesFor(baseRecord, record) : null;
                     const needsWrite = !baseRecord || Object.keys(changes).length > 0 || record._dirty;
                     if (!needsWrite) continue;
                     try {
@@ -3208,23 +3320,17 @@ function showLoading(s, options = {}) {
                             const { error } = await supabaseClient.rpc('insert_user_anon', { p_user: insertPayload(record, bucket) });
                             if (error) throw error;
                         } else if (Object.keys(changes).length) {
-                            let data = await callRpc('save_user_changes_v2', {
+                            const data = await callRpc('save_user_changes_v2', {
                                 p_user_id: id,
                                 p_changes: changes,
                                 p_expected_updated_at: baseRecord.updatedAt || baseRecord.updated_at || null
                             });
                             if (!data?.ok && data?.code === 'USER_STATE_CONFLICT' && data.user) {
                                 const cloudRecord = mapUserRow(data.user, baseRecord);
-                                replaceSnapshotRecord(nextBase, cloudRecord, bucketName({
-                                    users: data.user.status === 'active' ? [cloudRecord] : [],
-                                    unused: data.user.status === 'unused' ? [cloudRecord] : [],
-                                    trash: data.user.status === 'trash' ? [cloudRecord] : []
-                                }, id) || bucket);
-                                data = await callRpc('save_user_changes_v2', {
-                                    p_user_id: id,
-                                    p_changes: changes,
-                                    p_expected_updated_at: cloudRecord.updatedAt || cloudRecord.updated_at || null
-                                });
+                                delete cloudRecord._dirty;
+                                applyUserRow(cloudRecord);
+                                const cloudBucket = data.user.status === 'unused' ? 'unused' : (data.user.status === 'trash' ? 'trash' : 'users');
+                                replaceSnapshotRecord(nextBase, cloudRecord, cloudBucket);
                             }
                             if (!data?.ok) {
                                 const saveError = new Error(taskErrorText(data?.code || 'SAVE_FAILED'));
@@ -3260,7 +3366,7 @@ function showLoading(s, options = {}) {
             } else if (_hasPendingSave) {
                 statusEl.innerText = '继续上传后续修改...';
             } else {
-                statusEl.innerText = `已同步 ${beijingTimeString()}`;
+                statusEl.innerText = `✅ 已同步 ${beijingTimeString()}`;
             }
             return { ok: failed.length === 0, failedIds: failed, savedIds: saved };
         } catch (error) {
@@ -3297,6 +3403,215 @@ function showLoading(s, options = {}) {
         target.setUTCDate(target.getUTCDate() + 30);
         return target.toISOString().slice(0, 10);
     };
+
+    const paymentExpiryFor = (payment, id, fallback) => {
+        const pricing = Array.isArray(payment?.pricing)
+            ? payment.pricing.find(item => String(item?.recordId) === String(id)) : null;
+        return normalizedDate(pricing?.expiry) || normalizedDate(fallback) || '';
+    };
+
+    async function paidQuickRenew(id) {
+        if (!(await ensureCloudInitializedForAction())) return false;
+        let record = (db.users || []).find(row => String(row.id) === String(id));
+        if (!record) return false;
+        if (typeof activeWindowPaymentLock === 'function' && activeWindowPaymentLock(record)) {
+            alert('该员工号已有窗口付款订单进行中，完成或超时前不能续费。');
+            return false;
+        }
+        const targetExpiry = getRenewedExpiry(record);
+        if (typeof requestPaidOperation !== 'function') {
+            if (!(await showRenewalConfirm(record, targetExpiry, Number(record.amount || 0)))) return false;
+            const expiryBefore = String(record.expiry || '');
+            const renewed = await globalThis.renewUserInCloud(record, targetExpiry);
+            if (typeof recordOperationLog === 'function') recordOperationLog(renewed, 'renew', {
+                operatedAt: new Date().toISOString(), expiryBefore, expiryAfter: renewed.expiry
+            });
+            render();
+            return true;
+        }
+        let renewalPrice = validRenewalPriceOrAlert(record);
+        if (renewalPrice === null) return false;
+        if (!(await showRenewalConfirm(record, targetExpiry, renewalPrice))) return false;
+        const payment = await requestPaidOperation('renew', [id], `${pageOwner()} · ${record.username} · ${record.windows}窗口续费`);
+        if (!payment) return false;
+        try {
+            const paidExpiry = paymentExpiryFor(payment, id, record.expiry);
+            const paidTargetExpiry = getRenewedExpiry({ expiry: paidExpiry });
+            await syncUsersV2();
+            record = (db.users || []).find(row => String(row.id) === String(id));
+            if (!record) throw new Error('付款后账号状态已变化，请联系管理员并提供订单号：' + payment.orderNo);
+            renewalPrice = validRenewalPriceOrAlert(record);
+            if (renewalPrice === null || Math.abs(Number(payment.totalAmount) - renewalPrice) > 0.001) {
+                throw new Error('付款金额与当前月费不一致，请联系管理员并提供订单号：' + payment.orderNo);
+            }
+            const expiryBefore = String(record.expiry || '');
+            const renewed = await globalThis.renewUserInCloud(record, paidTargetExpiry, paidExpiry);
+            if (typeof recordOperationLog === 'function') recordOperationLog(renewed, 'renew', paidLogDetails(payment, {
+                operatedAt: new Date().toISOString(), expiryBefore, expiryAfter: renewed.expiry
+            }));
+            const completed = await completePaidOperation(payment, { recordIds: [String(id)], action: 'renew', expiryAfter: renewed.expiry });
+            render();
+            return completed !== false;
+        } catch (error) {
+            alert(`✅ 付款已确认，但续费尚未完成：\n${error?.message || error}\n\n请不要再次付款。订单号：${payment.orderNo}`);
+            return false;
+        }
+    }
+
+    async function paidRecoverFromTrash(id) {
+        if (!(await ensureCloudInitializedForAction())) return false;
+        let record = (db.trash || []).find(row => String(row.id) === String(id));
+        if (!record) return false;
+        const targetExpiry = getRenewedExpiry(record);
+        let renewalPrice = validRenewalPriceOrAlert(record);
+        if (renewalPrice === null) return false;
+        if (!(await showActionConfirm(`确定为“${record.username}”续费30天并恢复 BitBrowser 员工号？\n\n窗口：${record.windows}\n需支付：¥${Number(renewalPrice)}`, {
+            title: '续费恢复确认', confirmText: '确认并支付'
+        }))) return false;
+        const payment = await requestPaidOperation('restore', [id], `${pageOwner()} · ${record.username} · ${record.windows}窗口续费`);
+        if (!payment) return false;
+        try {
+            const paidExpiry = paymentExpiryFor(payment, id, record.expiry);
+            const paidTargetExpiry = getRenewedExpiry({ expiry: paidExpiry });
+            await syncUsersV2();
+            const alreadyActive = (db.users || []).find(row => String(row.id) === String(id));
+            if (alreadyActive) {
+                if (String(alreadyActive.expiry || '') !== paidTargetExpiry) {
+                    throw new Error('账号已恢复，但到期日与本次付款目标不一致，请联系管理员并提供订单号：' + payment.orderNo);
+                }
+                const completed = await completePaidOperation(payment, { recordIds: [String(id)], action: 'restore', expiryAfter: alreadyActive.expiry, duplicatePrevented: true });
+                render();
+                if (typeof renderTrash === 'function') renderTrash();
+                return completed !== false;
+            }
+            record = (db.trash || []).find(row => String(row.id) === String(id));
+            if (!record) throw new Error('付款后账号状态已变化，请联系管理员并提供订单号：' + payment.orderNo);
+            renewalPrice = validRenewalPriceOrAlert(record);
+            if (renewalPrice === null || Math.abs(Number(payment.totalAmount) - renewalPrice) > 0.001) {
+                throw new Error('付款金额与当前月费不一致，请联系管理员并提供订单号：' + payment.orderNo);
+            }
+            const expiryBefore = String(record.expiry || '');
+            await createTask(record, 'recover', { targetExpiry: paidTargetExpiry });
+            await syncUsersV2();
+            const recovered = (db.users || []).find(row => String(row.id) === String(id));
+            if (!recovered || recovered.expiry !== paidTargetExpiry) throw new Error('云端尚未确认恢复结果。');
+            if (typeof recordOperationLog === 'function') recordOperationLog(recovered, 'renew', paidLogDetails(payment, {
+                operatedAt: new Date().toISOString(), expiryBefore, expiryAfter: paidTargetExpiry
+            }));
+            const completed = await completePaidOperation(payment, { recordIds: [String(id)], action: 'restore', expiryAfter: paidTargetExpiry });
+            render();
+            if (typeof renderTrash === 'function') renderTrash();
+            return completed !== false;
+        } catch (error) {
+            alert(`✅ 付款已确认，但续费恢复尚未完成：\n${error?.message || error}\n\n请不要再次付款。订单号：${payment.orderNo}`);
+            return false;
+        }
+    }
+
+    async function cloudBatchRestoreTrash() {
+        const ids = Array.from(document.querySelectorAll('.trash-cb:checked')).map(node => String(node.value));
+        if (!ids.length || !(await ensureCloudInitializedForAction())) return false;
+        const selected = ids.map(id => (db.trash || []).find(row => String(row.id) === id));
+        if (selected.some(record => !record)) {
+            alert('部分账号已不在回收站，请刷新后重新选择。');
+            return false;
+        }
+        const targets = new Map(selected.map(record => [String(record.id), getRenewedExpiry(record)]));
+        let payment = null;
+        if (typeof requestPaidOperation === 'function') {
+            const cents = selected.map(record => typeof recordMonthlyAmountCents === 'function'
+                ? recordMonthlyAmountCents(record) : null);
+            if (cents.some(value => value === null)) {
+                alert('选中项目中存在金额无效的员工号，请刷新后重试。');
+                return false;
+            }
+            const total = cents.reduce((sum, value) => sum + value, 0) / 100;
+            if (!(await showActionConfirm(`确定续费并恢复选中的 ${ids.length} 个 BitBrowser 员工号？\n\n应付合计 ¥${Number(total)}。`, {
+                title: '批量续费恢复', confirmText: '确认并支付'
+            }))) return false;
+            payment = await requestPaidOperation('batch_renew', ids, `${pageOwner()} · 批量续费 ${ids.length} 个`);
+            if (!payment) return false;
+            for (const record of selected) {
+                const paidExpiry = paymentExpiryFor(payment, record.id, record.expiry);
+                targets.set(String(record.id), getRenewedExpiry({ expiry: paidExpiry }));
+            }
+        } else if (!(await showActionConfirm(`确定续费并恢复选中的 ${ids.length} 个 BitBrowser 员工号？`, {
+            title: '批量续费恢复', confirmText: '确认续费'
+        }))) return false;
+
+        const errors = [];
+        const failedIds = new Set();
+        const fail = (id, label, message) => {
+            failedIds.add(String(id));
+            errors.push(`${label || id}：${message}`);
+        };
+        showLoading(true, { blocking: false });
+        try {
+            await syncUsersV2();
+            for (const id of ids) {
+                const targetExpiry = targets.get(id);
+                const active = (db.users || []).find(row => String(row.id) === id);
+                if (active) {
+                    if (String(active.expiry || '') !== targetExpiry) fail(id, active.username, '云端到期日与本次续费目标不一致');
+                    continue;
+                }
+                const record = (db.trash || []).find(row => String(row.id) === id);
+                if (!record) {
+                    fail(id, id, '云端账号状态已变化');
+                    continue;
+                }
+                if (payment) {
+                    const pricing = Array.isArray(payment.pricing)
+                        ? payment.pricing.find(item => String(item.recordId) === id) : null;
+                    const currentCents = typeof recordMonthlyAmountCents === 'function'
+                        ? recordMonthlyAmountCents(record) : null;
+                    if (!pricing || currentCents === null || Number(pricing.amountCents) !== currentCents
+                        || Number(pricing.windows) !== Number(record.windows)) {
+                        fail(id, record.username, '付款期间窗口数或月费发生变化');
+                        continue;
+                    }
+                }
+                try {
+                    await createTask(record, 'recover', { targetExpiry });
+                } catch (error) {
+                    fail(id, record.username, error?.message || error);
+                }
+            }
+            await syncUsersV2();
+            for (const id of ids) {
+                if (failedIds.has(id)) continue;
+                const targetExpiry = targets.get(id);
+                const active = (db.users || []).find(row => String(row.id) === id);
+                if (!active || String(active.expiry || '') !== targetExpiry) {
+                    const label = active?.username || selected.find(row => String(row.id) === id)?.username || id;
+                    fail(id, label, '云端尚未确认恢复结果');
+                }
+            }
+            if (payment && !errors.length) {
+                const completed = await completePaidOperation(payment, {
+                    recordIds: ids, action: 'batch_renew',
+                    expiryTargets: Object.fromEntries(targets)
+                });
+                if (completed === false) return false;
+            }
+            render();
+            if (typeof renderTrash === 'function') renderTrash();
+        } finally {
+            showLoading(false);
+        }
+        if (errors.length) {
+            const paid = payment ? `✅ 付款已确认，但有 ${errors.length} 个员工号尚未完成。请不要重复付款。\n订单号：${payment.orderNo}\n\n` : '';
+            alert(paid + errors.join('\n'));
+            return false;
+        }
+        return true;
+    }
+
+    if (typeof quickRenew === 'function') globalThis.quickRenew = paidQuickRenew;
+    if (typeof renewFromTrash === 'function' && typeof requestPaidOperation === 'function') {
+        globalThis.renewFromTrash = paidRecoverFromTrash;
+    }
+    if (typeof batchRestoreTrash === 'function') globalThis.batchRestoreTrash = cloudBatchRestoreTrash;
 
     if (typeof activate === 'function' && typeof _activatingIds !== 'undefined') {
         const originalActivate = activate;
@@ -3340,6 +3655,8 @@ function showLoading(s, options = {}) {
     if (typeof openBitLinkModal === 'function' && typeof _bitTaskPollTimer !== 'undefined') {
         const openBitLinkModalOnce = openBitLinkModal;
         globalThis.openBitLinkModal = async (...args) => {
+            const searchInput = document.getElementById('bitJobSearchInput');
+            if (searchInput) searchInput.value = '';
             const result = await openBitLinkModalOnce(...args);
             if (_bitTaskPollTimer) {
                 clearInterval(_bitTaskPollTimer);
@@ -3358,13 +3675,11 @@ function showLoading(s, options = {}) {
     }
 
     let lastTaskPollAt = Date.now();
-    const taskIsActive = task => ['routing_required', 'pending', 'processing', 'retry_wait',
-        'execution_succeeded', 'writeback_pending'].includes(String(task?.status || ''));
     setInterval(() => {
         if (document.visibilityState !== 'visible') return;
         const now = Date.now();
-        const hasActiveTask = getTaskCache().some(taskIsActive);
-        if (now - lastTaskPollAt < (hasActiveTask ? 5000 : 30000)) return;
+        const hasActiveTask = getTaskCache().some(taskIsPending);
+        if (now - lastTaskPollAt < (hasActiveTask ? 10000 : 30000)) return;
         lastTaskPollAt = now;
         loadTasksV2().then(() => renderBitIntegration()).catch(error => {
             console.warn('[v2 tasks] background poll failed:', error.message || error);
