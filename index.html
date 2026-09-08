@@ -74,11 +74,13 @@
   .star-btn { cursor: pointer; font-size: 16px; color: var(--text3); transition: 0.2s; margin-right: 5px; vertical-align: middle; }
   .star-btn.active { color: var(--warning); text-shadow: 0 0 8px rgba(255,165,2,0.5); }
 
-  .trash-drawer { position: fixed; right: -500px; top: 0; width: 500px; max-width: 95vw; height: 100%; background: var(--surface); border-left: 1px solid var(--border); transition: 0.3s; z-index: 101; padding: 20px; box-shadow: -10px 0 30px rgba(0,0,0,0.8); display: flex; flex-direction: column; }
+  .trash-drawer { position: fixed; right: -720px; top: 0; width: 720px; max-width: 95vw; height: 100%; background: var(--surface); border-left: 1px solid var(--border); transition: 0.3s; z-index: 101; padding: 20px; box-shadow: -10px 0 30px rgba(0,0,0,0.8); display: flex; flex-direction: column; }
   .trash-drawer.open { right: 0; }
-  .trash-list-wrap { flex: 1; overflow-y: auto; margin-top: 10px; }
-  .trash-row { display:grid; grid-template-columns:1.5fr 1fr 1fr .8fr 66px; align-items:center; background:var(--surface2); border:1px solid var(--border); padding:8px 12px; border-radius:6px; margin-bottom:6px; font-size:11px; gap:8px; }
-  .trash-header { display:grid; grid-template-columns:1.5fr 1fr 1fr .8fr 66px; padding:0 12px 8px; color:var(--text3); font-size:10px; gap:8px; }
+  .trash-list-wrap { flex: 1; overflow-y: auto; overflow-x: hidden; margin-top: 10px; }
+  .trash-row { display:grid; grid-template-columns:1.35fr .8fr 1fr .9fr .7fr 88px 66px; align-items:center; background:var(--surface2); border:1px solid var(--border); padding:8px 12px; border-radius:6px; margin-bottom:6px; font-size:11px; gap:8px; }
+  .trash-header { display:grid; grid-template-columns:1.35fr .8fr 1fr .9fr .7fr 88px 66px; padding:0 12px 8px; color:var(--text3); font-size:10px; gap:8px; }
+  .trash-val { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .trash-status { display:flex; justify-content:center; min-width:0; }
   
   .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; z-index: 100; backdrop-filter: blur(2px); }
   .overlay.open { display: block; }
@@ -162,7 +164,15 @@
     .user-table .btn-sm { padding-left:5px; padding-right:5px; }
     .user-table .star-btn { margin-right:2px; }
     .trash-drawer { right:-100vw; width:100vw; max-width:100vw; padding:12px 8px; }
-    .trash-row, .trash-header { grid-template-columns:minmax(88px,1.3fr) minmax(75px,1fr) 72px 55px 54px; gap:4px; }
+    .trash-header { display:none; }
+    .trash-row { grid-template-columns:minmax(88px,1.3fr) 62px minmax(75px,1fr) 72px; gap:4px; }
+    .trash-col-user { grid-column:1; grid-row:1; }
+    .trash-col-window { grid-column:2; grid-row:1; }
+    .trash-col-wechat { grid-column:3; grid-row:1; }
+    .trash-actions { grid-column:4; grid-row:1; }
+    .trash-col-expiry { grid-column:1; grid-row:2; }
+    .trash-col-amount { grid-column:2; grid-row:2; }
+    .trash-status { grid-column:3 / span 2; grid-row:2; justify-content:flex-end; }
     .trash-row .btn { padding:3px 6px; font-size:9px; }
   }
 </style>
@@ -219,7 +229,7 @@
     <button class="btn btn-ghost" onclick="toggleTrash(false)">关闭</button>
   </div>
   <div class="trash-header">
-    <div>用户名</div><div>微信</div><div>到期(月日)</div><div>金额</div><div>操作</div>
+    <div class="trash-col-user">用户名</div><div class="trash-col-window">窗口</div><div class="trash-col-wechat">微信</div><div class="trash-col-expiry">到期(月日)</div><div class="trash-col-amount">金额</div><div>状态</div><div>操作</div>
   </div>
   <div class="trash-list-wrap" id="trashList"></div>
 </div>
@@ -1265,6 +1275,16 @@ function recordOperationLog(record, action, details = {}) {
     return log;
 }
 
+const DELETE_IN_PROGRESS_STATUSES = new Set(['routing_required', 'pending', 'processing', 'retry_wait', 'execution_succeeded', 'writeback_pending']);
+
+function formatBitWindowUsage(record) {
+    const used = Number(record?.bitExistingWindows);
+    const quota = Number(record?.bitWindowQuota);
+    if (Number.isFinite(used) && Number.isFinite(quota) && quota > 0) return `${Math.round(used)}/${Math.round(quota)}`;
+    const fallback = record?.windows;
+    return fallback === null || fallback === undefined || String(fallback).trim() === '' ? '-' : String(fallback);
+}
+
 function bitBadgeForRecord(record) {
     const paymentLock = activeWindowPaymentLock(record);
     if (paymentLock) {
@@ -1275,19 +1295,13 @@ function bitBadgeForRecord(record) {
     const useWindowTask = record.windowJobId && (!record.bitJobId || String(record.windowSyncUpdatedAt || '') >= String(record.bitSyncUpdatedAt || ''));
     const jobId = useWindowTask ? record.windowJobId : record.bitJobId;
     if (!jobId) return '';
-    let status = String(useWindowTask ? record.windowSyncStatus : record.bitSyncStatus || '');
-    // 兜底：账号已进入回收站（delete 目标），即使任务状态未回写也视为已完成
+    const status = String(useWindowTask ? record.windowSyncStatus : record.bitSyncStatus || '');
     const act = String(useWindowTask ? record.windowSyncAction : record.bitSyncAction || '');
-    const inTrash = (db.trash || []).some(r => String(r.id || '') === String(record.id || ''));
-    if (inTrash && ['delete', 'disable'].includes(act)) {
-        const pendingSt = new Set(['pending', 'processing', 'routing_required', 'retry_wait', 'needs_attention', '']);
-        if (pendingSt.has(status)) {
-            status = 'success';
-        }
-    }
+    const isDeleting = act === 'delete' && DELETE_IN_PROGRESS_STATUSES.has(status);
     const message = useWindowTask ? record.windowSyncMessage : record.bitSyncMessage;
     const prefix = useWindowTask ? '🪟 ' : '🔗 ';
-    return `<span class="bit-badge ${escapeHtml(status)}" title="${escapeHtml(message || '')}">${prefix}${escapeHtml(BIT_STATUS_LABELS[status] || status || '待同步')}</span>`;
+    const label = isDeleting ? '正在删除' : (BIT_STATUS_LABELS[status] || status || '待同步');
+    return `<span class="bit-badge ${escapeHtml(status)}" title="${escapeHtml(message || '')}">${prefix}${escapeHtml(label)}</span>`;
 }
 
 function latestRenewLogForTask(task, record) {
@@ -2372,15 +2386,21 @@ function render(forceSort = false) {
 function renderTrash() {
     const list = document.getElementById('trashList');
     const orgTrash = db.trash.filter(isTargetOwnerRecord);
-    list.innerHTML = orgTrash.map(u => `
+    list.innerHTML = orgTrash.map(u => {
+      const windowUsage = escapeHtml(formatBitWindowUsage(u));
+      const bitBadge = bitBadgeForRecord(u);
+      return `
         <div class="trash-row">
-            <div style="overflow:hidden; text-overflow:ellipsis"><b>${u.username}</b></div>
-            <div>${u.wechat || '-'}</div>
-            <div style="color:var(--accent)">${(u.expiry||'').slice(5)}</div>
-            <div>¥${cleanAmount(u.amount, '0')}</div>
-            <div><button class="btn btn-success btn-sm" onclick="renewFromTrash('${u.id}')">续费</button></div>
+            <div class="trash-val trash-col-user"><b>${escapeHtml(u.username)}</b></div>
+            <div class="trash-val trash-col-window" title="${windowUsage}">${windowUsage}</div>
+            <div class="trash-val trash-col-wechat">${escapeHtml(u.wechat || '-')}</div>
+            <div class="trash-val trash-col-expiry" style="color:var(--accent)">${escapeHtml((u.expiry||'').slice(5))}</div>
+            <div class="trash-val trash-col-amount">¥${escapeHtml(cleanAmount(u.amount, '0'))}</div>
+            <div class="trash-status">${bitBadge || '-'}</div>
+            <div class="trash-actions"><button class="btn btn-success btn-sm" onclick="renewFromTrash('${u.id}')">续费</button></div>
         </div>
-    `).join('') || '<div style="text-align:center; padding:40px; color:var(--text3)">空</div>';
+      `;
+    }).join('') || '<div style="text-align:center; padding:40px; color:var(--text3)">空</div>';
 }
 
 async function renewFromTrash(id) {
