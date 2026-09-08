@@ -414,7 +414,7 @@ const BIT_WINDOW_ACTIVE_STATUSES = new Set(['routing_required','pending','proces
 const BIT_PENDING_STATUSES = new Set(['routing_required','pending','processing','retry_wait']);
 const BIT_STATUS_LABELS = {
     routing_required:'等待前缀路由', pending:'待执行', processing:'执行中', retry_wait:'等待重试',
-    execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', success: '已完成', needs_attention:'需人工处理', resolved:'已解决', cancelled:'已取消'
+    execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', execution_succeeded: '浏览器已执行', writeback_pending: '等待数据库回写', success: '已完成', needs_attention:'需人工处理', resolved:'已解决', cancelled:'已取消'
 };
 const BIT_ACTION_LABELS = {
     disable:'停用员工号', enable:'启用员工号', recover:'恢复员工号', delete:'删除员工号', set_window_quota:'修改窗口数'
@@ -2697,16 +2697,20 @@ function showLoading(s, options = {}) {
 
 
 
+
+
 /* FRONTEND_V2_RUNTIME_START */
 (function installFrontendV2Runtime() {
     'use strict';
-    const schemaVersion = '2026-09-08.3';
+    const schemaVersion = '2026-09-08.4';
     const usersCursorKey = STORAGE_KEY + ':usersCursor';
     const tasksCursorKey = STORAGE_KEY + ':tasksCursor';
     const schemaKey = STORAGE_KEY + ':runtimeSchema';
     const hiddenTasksKey = STORAGE_KEY + ':hiddenTasks';
     let saveFailureCount = 0;
     let terminalRefreshQueued = false;
+    let usersSyncPromise = null;
+    let tasksSyncPromise = null;
 
     globalThis.__ownerSplitLoaded = true;
     if (localStorage.getItem(schemaKey) !== schemaVersion) {
@@ -2861,7 +2865,7 @@ function showLoading(s, options = {}) {
         else db.users.push(stableRecord);
     }
 
-    async function syncUsersV2() {
+    async function syncUsersV2Once() {
         let cursor = numberCursor(usersCursorKey);
         let pages = 0;
         let changed = false;
@@ -2886,6 +2890,13 @@ function showLoading(s, options = {}) {
         localStorage.setItem(STORAGE_KEY + '_version', lastKnownUpdatedAt);
         persistLocal();
         return changed;
+    }
+
+    function syncUsersV2() {
+        if (!usersSyncPromise) {
+            usersSyncPromise = syncUsersV2Once().finally(() => { usersSyncPromise = null; });
+        }
+        return usersSyncPromise;
     }
 
     function applyTaskToPage(task) {
@@ -2920,7 +2931,7 @@ function showLoading(s, options = {}) {
         return nextCache.find(item => String(item.id) === String(mapped.id)) || mapped;
     }
 
-    async function loadTasksV2() {
+    async function loadTasksV2Once() {
         let cursor = numberCursor(tasksCursorKey);
         let pages = 0;
         let terminalChanged = false;
@@ -2962,6 +2973,13 @@ function showLoading(s, options = {}) {
             }, 0);
         }
         return visibleTasks;
+    }
+
+    function loadTasksV2() {
+        if (!tasksSyncPromise) {
+            tasksSyncPromise = loadTasksV2Once().finally(() => { tasksSyncPromise = null; });
+        }
+        return tasksSyncPromise;
     }
 
     async function createTask(record, action, options = {}) {
@@ -3308,6 +3326,36 @@ function showLoading(s, options = {}) {
             showLoading(false);
         }
     };
+
+    // The legacy pages install their own 10/30 second task timers.  Keep their
+    // modal behavior, but retire those timers so every page has one poller.
+    if (typeof startBitBackgroundPoll === 'function') {
+        globalThis.startBitBackgroundPoll = () => {
+            if (typeof _bitBgPollTimer !== 'undefined' && _bitBgPollTimer) {
+                clearInterval(_bitBgPollTimer);
+                _bitBgPollTimer = null;
+            }
+        };
+    }
+    if (typeof openBitLinkModal === 'function' && typeof _bitTaskPollTimer !== 'undefined') {
+        const openBitLinkModalOnce = openBitLinkModal;
+        globalThis.openBitLinkModal = async (...args) => {
+            const result = await openBitLinkModalOnce(...args);
+            if (_bitTaskPollTimer) {
+                clearInterval(_bitTaskPollTimer);
+                _bitTaskPollTimer = null;
+            }
+            return result;
+        };
+    }
+    if (typeof _bitTaskPollTimer !== 'undefined' && _bitTaskPollTimer) {
+        clearInterval(_bitTaskPollTimer);
+        _bitTaskPollTimer = null;
+    }
+    if (typeof _bitBgPollTimer !== 'undefined' && _bitBgPollTimer) {
+        clearInterval(_bitBgPollTimer);
+        _bitBgPollTimer = null;
+    }
 
     let lastTaskPollAt = Date.now();
     const taskIsActive = task => ['routing_required', 'pending', 'processing', 'retry_wait',
