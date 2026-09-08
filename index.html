@@ -433,7 +433,7 @@ const BIT_RESULT_LABELS = {
     cancelled_by_user:'用户已取消', resolved_by_newer_task:'已被较新任务解决',
     superseded_by_newer_task:'已被较新任务替代', window_quota_cancelled_by_delete:'删除员工号时已取消窗口数任务'
 };
-const OPERATION_ACTION_LABELS = { activate:'激活', renew:'续费', window_add:'增加窗口', window_reduce:'减少窗口', window_sync:'BitBrowser窗口同步' };
+const OPERATION_ACTION_LABELS = { activate:'激活', renew:'续费', window_add:'增加窗口', window_reduce:'减少窗口', window_sync:'BitBrowser窗口同步', delete: '删除' };
 
 let db = { users: [], unused: [], trash: [], bitTasks: [], bitConnectors: [], bitInventory: [], bitUsernameRegistry: [], operationLogs: [] };
 let currentFilter = 'all';
@@ -2744,10 +2744,14 @@ function showLoading(s, options = {}) {
 
 
 
+
+
+
+
 /* FRONTEND_V2_RUNTIME_START */
 (function installFrontendV2Runtime() {
     'use strict';
-    const schemaVersion = '2026-09-09.1';
+    const schemaVersion = '2026-09-09.2';
     const usersCursorKey = STORAGE_KEY + ':usersCursor';
     const tasksCursorKey = STORAGE_KEY + ':tasksCursor';
     const schemaKey = STORAGE_KEY + ':runtimeSchema';
@@ -2791,6 +2795,29 @@ function showLoading(s, options = {}) {
         return createdDelta || String(a?.id || '').localeCompare(String(b?.id || ''));
     };
     globalThis.bitTaskStableCompare = taskStableCompare;
+    const deleteInProgressStatuses = new Set([
+        'routing_required', 'pending', 'processing', 'retry_wait',
+        'execution_succeeded', 'writeback_pending'
+    ]);
+    globalThis.trashEmployeeStatusBadge = record => {
+        const sourceId = String(record?.id || '');
+        const related = getTaskCache()
+            .filter(task => String(task?.sourceRecordId || task?.source_record_id || '') === sourceId)
+            .sort((a, b) => String(b?.updatedAt || b?.updated_at || '').localeCompare(String(a?.updatedAt || a?.updated_at || '')));
+        const deleting = related.find(task =>
+            String(task?.action || '') === 'delete' && deleteInProgressStatuses.has(String(task?.status || ''))
+        );
+        if (deleting) {
+            return '<span class="bit-badge processing" title="删除任务正在执行">正在删除</span>';
+        }
+        if (record?.bitEmployeeEnabled === true) {
+            return '<span class="bit-badge success" title="BitBrowser 员工号状态">已启用</span>';
+        }
+        if (record?.bitEmployeeEnabled === false) {
+            return '<span class="bit-badge success" title="BitBrowser 员工号状态">已停用</span>';
+        }
+        return '';
+    };
     const beijingTimeString = () => {
         if (typeof getBeijingTimeString === 'function') return getBeijingTimeString();
         return new Intl.DateTimeFormat('zh-CN', {
@@ -2842,7 +2869,12 @@ function showLoading(s, options = {}) {
             return (char === 'x' ? value : (value & 3 | 8)).toString(16);
         });
     };
-    const persistLocal = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(buildMainDataPayload()));
+    const persistLocal = () => {
+        const payload = buildMainDataPayload();
+        payload.bitTasks = getTaskCache();
+        payload.operationLogs = Array.isArray(db.operationLogs) ? db.operationLogs : [];
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    };
     const rpcErrorText = (error, data) => {
         const value = data && data.ok === false ? data.code : null;
         return String(value || error?.message || error?.details || error || 'UNKNOWN_ERROR');
@@ -2905,6 +2937,8 @@ function showLoading(s, options = {}) {
             bitWindowQuota: row.bitWindowQuota ?? row.bit_window_quota ?? null,
             bitExistingWindows: row.bitExistingWindows ?? row.bit_existing_windows ?? null,
             bitWindowQuotaUpdatedAt: row.bitWindowQuotaUpdatedAt ?? row.bit_window_quota_updated_at ?? null,
+            bitEmployeeEnabled: row.bitEmployeeEnabled ?? row.bit_employee_enabled ?? null,
+            bitEmployeeStatusUpdatedAt: row.bitEmployeeStatusUpdatedAt ?? row.bit_employee_status_updated_at ?? null,
             billingRevision: row.billingRevision ?? row.billing_revision ?? 0,
             billingUpdatedAt: row.billingUpdatedAt ?? row.billing_updated_at ?? null,
             billingUpdateSource: row.billingUpdateSource ?? row.billing_update_source ?? null,
@@ -2997,6 +3031,12 @@ function showLoading(s, options = {}) {
 
     async function loadTasksV2Once() {
         let cursor = numberCursor(tasksCursorKey);
+        // Old pages persisted the cursor but dropped bitTasks from the local payload.
+        // Rehydrate once from zero instead of treating an empty delta as empty history.
+        if (cursor > 0 && getTaskCache().length === 0) {
+            cursor = 0;
+            localStorage.removeItem(tasksCursorKey);
+        }
         let pages = 0;
         let terminalChanged = false;
         const owner = pageOwner() || null;
@@ -3228,6 +3268,13 @@ function showLoading(s, options = {}) {
                 p_expected_username: username
             });
             if (!data?.ok) throw new Error(taskErrorText(data?.code));
+            if (!data.alreadyConfirmed && typeof recordOperationLog === 'function') {
+                recordOperationLog(record, 'delete', {
+                    operatedAt: new Date().toISOString(),
+                    syncSource: 'manual_external_delete'
+                });
+                persistLocal();
+            }
             await Promise.all([syncUsersV2(), loadTasksV2()]);
             render();
             if (typeof renderTrash === 'function') renderTrash();
@@ -3701,6 +3748,13 @@ function showLoading(s, options = {}) {
         showLoading(true, { blocking: false });
         try {
             await createTask(record, 'delete');
+            if (typeof recordOperationLog === 'function') {
+                recordOperationLog(record, 'delete', {
+                    operatedAt: new Date().toISOString(),
+                    syncSource: 'delete_task_created'
+                });
+                persistLocal();
+            }
             await syncUsersV2();
             render();
             if (typeof renderTrash === 'function') renderTrash();
@@ -3786,7 +3840,10 @@ function showLoading(s, options = {}) {
 })();
 
 window.addEventListener('beforeunload', () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(buildMainDataPayload()));
+    const payload = buildMainDataPayload();
+    payload.bitTasks = typeof _bitTaskCache !== 'undefined' && Array.isArray(_bitTaskCache) ? _bitTaskCache : (db.bitTasks || []);
+    payload.operationLogs = Array.isArray(db.operationLogs) ? db.operationLogs : [];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 });
 setInterval(() => {
     if (document.visibilityState === 'visible' && (document.hasFocus ? document.hasFocus() : true)) {
