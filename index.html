@@ -2748,10 +2748,18 @@ function showLoading(s, options = {}) {
 
 
 
+
+
+
+
+
+
+
+
 /* FRONTEND_V2_RUNTIME_START */
 (function installFrontendV2Runtime() {
     'use strict';
-    const schemaVersion = '2026-09-09.2';
+    const schemaVersion = '2026-09-09.4';
     const usersCursorKey = STORAGE_KEY + ':usersCursor';
     const tasksCursorKey = STORAGE_KEY + ':tasksCursor';
     const schemaKey = STORAGE_KEY + ':runtimeSchema';
@@ -2795,6 +2803,12 @@ function showLoading(s, options = {}) {
         return createdDelta || String(a?.id || '').localeCompare(String(b?.id || ''));
     };
     globalThis.bitTaskStableCompare = taskStableCompare;
+    const pageOwner = () => {
+        if (typeof TARGET_ORG !== 'undefined' && TARGET_ORG) return String(TARGET_ORG);
+        if (typeof DEFAULT_OWNER !== 'undefined' && DEFAULT_OWNER) return String(DEFAULT_OWNER);
+        return '';
+    };
+    const isMainPage = () => !pageOwner();
     const deleteInProgressStatuses = new Set([
         'routing_required', 'pending', 'processing', 'retry_wait',
         'execution_succeeded', 'writeback_pending'
@@ -2810,11 +2824,14 @@ function showLoading(s, options = {}) {
         if (deleting) {
             return '<span class="bit-badge processing" title="删除任务正在执行">正在删除</span>';
         }
+        if (isMainPage() && record?.bitEmployeePresent === false) {
+            return '<span class="bit-badge missing" title="BitBrowser 员工目录中未找到此员工号">未找到此员工</span>';
+        }
         if (record?.bitEmployeeEnabled === true) {
             return '<span class="bit-badge success" title="BitBrowser 员工号状态">已启用</span>';
         }
         if (record?.bitEmployeeEnabled === false) {
-            return '<span class="bit-badge success" title="BitBrowser 员工号状态">已停用</span>';
+            return '<span class="bit-badge needs_attention" title="BitBrowser 员工号状态">已停用</span>';
         }
         return '';
     };
@@ -2843,12 +2860,6 @@ function showLoading(s, options = {}) {
         const value = Number(localStorage.getItem(key) || 0);
         return Number.isSafeInteger(value) && value >= 0 ? value : 0;
     };
-    const pageOwner = () => {
-        if (typeof TARGET_ORG !== 'undefined' && TARGET_ORG) return String(TARGET_ORG);
-        if (typeof DEFAULT_OWNER !== 'undefined' && DEFAULT_OWNER) return String(DEFAULT_OWNER);
-        return '';
-    };
-    const isMainPage = () => !pageOwner();
     const allBuckets = state => [state.users || [], state.unused || [], state.trash || []];
     const findRecord = id => allBuckets(db).flat().find(row => String(row.id) === String(id));
     const bucketName = (state, id) => {
@@ -2894,6 +2905,8 @@ function showLoading(s, options = {}) {
         USER_STATE_CONFLICT: '账号已被其他页面修改，请刷新后重试。',
         SLOT_NOT_UNUSED: '该待激活名额已被使用，请刷新页面。',
         SLOT_BLOCKED: '该名额仍有关联任务，暂时不能激活。',
+        USER_NOT_ACTIVE: '该账号已经不在启用列表，请刷新后重试。',
+        INVALID_ACTIVATION_ROLLBACK: '回退参数已失效，请刷新后重试。',
         USER_NOT_FOUND: '云端找不到该账号。',
         INVALID_USER_CHANGE: '本次修改包含不允许的字段。',
         INVALID_MANUAL_DELETE_CONFIRMATION: '手工删除确认参数不完整，请刷新后重试。',
@@ -2938,6 +2951,7 @@ function showLoading(s, options = {}) {
             bitExistingWindows: row.bitExistingWindows ?? row.bit_existing_windows ?? null,
             bitWindowQuotaUpdatedAt: row.bitWindowQuotaUpdatedAt ?? row.bit_window_quota_updated_at ?? null,
             bitEmployeeEnabled: row.bitEmployeeEnabled ?? row.bit_employee_enabled ?? null,
+            bitEmployeePresent: row.bitEmployeePresent ?? row.bit_employee_present ?? null,
             bitEmployeeStatusUpdatedAt: row.bitEmployeeStatusUpdatedAt ?? row.bit_employee_status_updated_at ?? null,
             billingRevision: row.billingRevision ?? row.billing_revision ?? 0,
             billingUpdatedAt: row.billingUpdatedAt ?? row.billing_updated_at ?? null,
@@ -3347,6 +3361,23 @@ function showLoading(s, options = {}) {
         baseSnapshot = snapshotMainData();
         persistLocal();
         return findRecord(slot.id) || activatedUser;
+    };
+
+    globalThis.rollbackActivatedUserInCloud = async record => {
+        const data = await callRpc('rollback_activation_v2', {
+            p_user_id: String(record?.id || ''),
+            p_expected_updated_at: record?.updatedAt || record?.updated_at || null
+        });
+        if (!data?.ok) {
+            if (data?.user) applyUserRow(data.user);
+            const error = new Error(taskErrorText(data?.code || 'ACTIVATION_ROLLBACK_FAILED'));
+            error.code = data?.code || 'ACTIVATION_ROLLBACK_FAILED';
+            throw error;
+        }
+        applyUserRow(data.user || { ...record, status: 'unused' });
+        baseSnapshot = snapshotMainData();
+        persistLocal();
+        return findRecord(record.id);
     };
 
     globalThis.renewUserInCloud = async (record, targetExpiry, originalExpiry = null) => {
