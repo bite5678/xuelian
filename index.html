@@ -6,7 +6,7 @@
 <title>雪莲-用户管理系统</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script src="https://pay.bite5678.fun/payment/payment-client.js?v=20260908-v2"></script>
+<script src="https://pay.bite5678.fun/payment/payment-client.js?v=20260910-v3"></script>
 <script src="https://pay.bite5678.fun/payment/window-payment-flow.js?v=20260908-v2"></script>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -2759,7 +2759,7 @@ function showLoading(s, options = {}) {
 /* FRONTEND_V2_RUNTIME_START */
 (function installFrontendV2Runtime() {
     'use strict';
-    const schemaVersion = '2026-09-09.4';
+    const schemaVersion = '2026-09-10.5';
     const usersCursorKey = STORAGE_KEY + ':usersCursor';
     const tasksCursorKey = STORAGE_KEY + ':tasksCursor';
     const schemaKey = STORAGE_KEY + ':runtimeSchema';
@@ -2776,6 +2776,8 @@ function showLoading(s, options = {}) {
         localStorage.removeItem(usersCursorKey);
         localStorage.removeItem(tasksCursorKey);
         localStorage.removeItem(STORAGE_KEY + '_version');
+        // A schema upgrade must never blank the audit list while the full feed reloads.
+        // Legacy "clear logs" only hid local rows, so remove that filter and rehydrate.
         localStorage.removeItem(hiddenTasksKey);
         localStorage.setItem(schemaKey, schemaVersion);
     }
@@ -3009,6 +3011,39 @@ function showLoading(s, options = {}) {
         return usersSyncPromise;
     }
 
+    async function forceFullUsersReconcile() {
+        if (usersSyncPromise) await usersSyncPromise;
+        let cursor = 0;
+        let pages = 0;
+        const authoritativeRows = [];
+        do {
+            const result = await callRpc('get_users_since_v2', {
+                p_cursor_change_seq: cursor,
+                p_limit: 500
+            });
+            const rows = Array.isArray(result?.rows) ? result.rows : [];
+            authoritativeRows.push(...rows);
+            const next = Number(result?.cursor ?? cursor);
+            if (!Number.isSafeInteger(next) || next < cursor) throw new Error('用户全量校正游标无效。');
+            cursor = next;
+            pages += 1;
+            if (!result?.hasMore) break;
+            if (pages >= 100) throw new Error('用户全量校正分页超过安全上限。');
+        } while (true);
+
+        authoritativeRows.forEach(applyUserRow);
+        db._syncCursorV2 = cursor;
+        lastKnownUpdatedAt = `SEQ:${cursor}`;
+        localStorage.setItem(usersCursorKey, String(cursor));
+        localStorage.setItem(STORAGE_KEY + '_version', lastKnownUpdatedAt);
+        baseSnapshot = snapshotMainData();
+        persistLocal();
+        render();
+        if (typeof renderTrash === 'function') renderTrash();
+        return authoritativeRows.length;
+    }
+    globalThis.forceFullUsersReconcile = forceFullUsersReconcile;
+
     function applyTaskToPage(task) {
         const id = String(task.sourceRecordId || '');
         const record = id ? findRecord(id) : null;
@@ -3071,6 +3106,7 @@ function showLoading(s, options = {}) {
             if (!result?.hasMore) break;
             if (pages >= 100) throw new Error('任务增量分页超过安全上限。');
         } while (true);
+        localStorage.removeItem(hiddenTasksKey);
         const visibleTasks = getTaskCache()
             .filter(task => !task.deletedAt)
             .sort(taskStableCompare);
@@ -3180,6 +3216,13 @@ function showLoading(s, options = {}) {
         }
         if (!data?.ok) {
             localStorage.removeItem(requestKey);
+            if (String(data?.code || '') === 'INVALID_STATE_FOR_ACTION') {
+                try {
+                    await forceFullUsersReconcile();
+                } catch (syncError) {
+                    console.warn('[v2 users] lifecycle conflict repair failed:', syncError.message || syncError);
+                }
+            }
             const error = new Error(taskErrorText(data?.code));
             error.code = data?.code || 'TASK_CREATE_FAILED';
             error.detail = data;
@@ -3246,7 +3289,7 @@ function showLoading(s, options = {}) {
 
     globalThis.clearBitTaskLogs = async () => {
         localStorage.removeItem(hiddenTasksKey);
-        alert('任务记录是审计历史，当前页面不提供清空入口。');
+        alert('任务记录是审计历史，网页端不会再清空或隐藏。');
         return false;
     };
 
@@ -3827,24 +3870,17 @@ function showLoading(s, options = {}) {
         _bitBgPollTimer = null;
     }
 
-    if (globalThis.__frontendV2TaskPollTimer) {
-        clearTimeout(globalThis.__frontendV2TaskPollTimer);
-    }
-    const scheduleTaskPoll = delay => {
-        globalThis.__frontendV2TaskPollTimer = setTimeout(async () => {
-            if (document.visibilityState === 'visible') {
-                try {
-                    await loadTasksV2();
-                    renderBitIntegration();
-                } catch (error) {
-                    console.warn('[v2 tasks] background poll failed:', error.message || error);
-                }
-            }
-            const hasActiveTask = getTaskCache().some(taskIsPending);
-            scheduleTaskPoll(hasActiveTask ? 10000 : 60000);
-        }, delay);
-    };
-    scheduleTaskPoll(0);
+    let lastTaskPollAt = Date.now();
+    setInterval(() => {
+        if (document.visibilityState !== 'visible') return;
+        const now = Date.now();
+        const hasActiveTask = getTaskCache().some(taskIsPending);
+        if (now - lastTaskPollAt < (hasActiveTask ? 10000 : 30000)) return;
+        lastTaskPollAt = now;
+        loadTasksV2().then(() => renderBitIntegration()).catch(error => {
+            console.warn('[v2 tasks] background poll failed:', error.message || error);
+        });
+    }, 5000);
 })();
 /* FRONTEND_V2_RUNTIME_END */
 
