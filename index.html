@@ -2824,6 +2824,14 @@ function showLoading(s, options = {}) {
         if (deleting) {
             return '<span class="bit-badge processing" title="删除任务正在执行">正在删除</span>';
         }
+        const disabling = related.find(task =>
+            String(task?.action || '') === 'disable' && deleteInProgressStatuses.has(String(task?.status || ''))
+        );
+        const localDisabling = String(record?.bitSyncAction || '') === 'disable' &&
+            deleteInProgressStatuses.has(String(record?.bitSyncStatus || ''));
+        if (disabling || localDisabling) {
+            return '<span class="bit-badge processing" title="停用任务正在执行">执行中</span>';
+        }
         if (isMainPage() && record?.bitEmployeePresent === false) {
             return '<span class="bit-badge missing" title="BitBrowser 员工目录中未找到此员工号">未找到此员工</span>';
         }
@@ -3086,6 +3094,7 @@ function showLoading(s, options = {}) {
         }
         let pages = 0;
         let terminalChanged = false;
+        let terminalNeedsReconcile = false;
         const owner = pageOwner() || null;
         do {
             const result = await callRpc('get_bit_tasks_since', {
@@ -3097,6 +3106,7 @@ function showLoading(s, options = {}) {
             for (const row of rows) {
                 rememberTask(row);
                 if (['success', 'resolved', 'cancelled', 'needs_attention'].includes(String(row.status || ''))) terminalChanged = true;
+                if (['cancelled', 'needs_attention'].includes(String(row.status || ''))) terminalNeedsReconcile = true;
             }
             const next = Number(result?.cursor ?? cursor);
             if (!Number.isSafeInteger(next) || next < cursor) throw new Error('任务增量游标无效。');
@@ -3116,7 +3126,12 @@ function showLoading(s, options = {}) {
         if (terminalChanged && !_isSyncing && !terminalRefreshQueued) {
             terminalRefreshQueued = true;
             setTimeout(async () => {
-                try { if (!_isSaving && !_hasPendingSave) await syncUsersV2(); }
+                try {
+                    if (!_isSaving && !_hasPendingSave) {
+                        if (terminalNeedsReconcile) await forceFullUsersReconcile();
+                        else await syncUsersV2();
+                    }
+                }
                 catch (error) { console.warn('[v2 users] terminal refresh failed:', error.message || error); }
                 finally { terminalRefreshQueued = false; render(); if (typeof renderTrash === 'function') renderTrash(); }
             }, 0);
@@ -3240,11 +3255,13 @@ function showLoading(s, options = {}) {
         bitIntegrationAvailable = true;
         bitIntegrationMessage = data.reused ? '已确认现有任务，等待连接器处理' : '任务已写入云端，等待连接器处理';
         if (typeof refreshBitTaskBadge === 'function') refreshBitTaskBadge();
-        try {
-            await syncUsersV2();
-            baseSnapshot = snapshotMainData();
-        } catch (error) {
-            console.warn('[v2 users] task created but user refresh is pending:', error.message || error);
+        if (!options.skipUserSync) {
+            try {
+                await syncUsersV2();
+                baseSnapshot = snapshotMainData();
+            } catch (error) {
+                console.warn('[v2 users] task created but user refresh is pending:', error.message || error);
+            }
         }
         return task;
     }
@@ -3587,6 +3604,35 @@ function showLoading(s, options = {}) {
         return normalizedDate(pricing?.expiry) || normalizedDate(fallback) || '';
     };
 
+    function optimisticBucketMove(record, targetBucket, changes = {}) {
+        const id = String(record?.id || '');
+        const sourceBucket = bucketName(db, id);
+        const sourceIndex = sourceBucket ? (db[sourceBucket] || []).findIndex(row => String(row.id) === id) : -1;
+        const snapshot = JSON.parse(JSON.stringify(record || {}));
+        for (const key of ['users', 'unused', 'trash']) {
+            db[key] = (db[key] || []).filter(row => String(row.id) !== id);
+        }
+        Object.assign(record, changes);
+        db[targetBucket].unshift(record);
+        persistLocal();
+        render();
+        if (typeof renderTrash === 'function') renderTrash();
+        return () => {
+            for (const key of ['users', 'unused', 'trash']) {
+                db[key] = (db[key] || []).filter(row => String(row.id) !== id);
+            }
+            for (const key of Object.keys(record)) delete record[key];
+            Object.assign(record, snapshot);
+            if (sourceBucket) {
+                const index = Math.max(0, Math.min(sourceIndex, db[sourceBucket].length));
+                db[sourceBucket].splice(index, 0, record);
+            }
+            persistLocal();
+            render();
+            if (typeof renderTrash === 'function') renderTrash();
+        };
+    }
+
     async function paidQuickRenew(id) {
         if (!(await ensureCloudInitializedForAction())) return false;
         let record = (db.users || []).find(row => String(row.id) === String(id));
@@ -3644,26 +3690,52 @@ function showLoading(s, options = {}) {
             title: '续费恢复确认', confirmText: '确认续费恢复'
         }))) return false;
         const expiryBefore = String(record.expiry || '');
-        showLoading(true, { blocking: false });
+        const rollbackLocal = optimisticBucketMove(record, 'users', {
+            status: 'active', expiry: targetExpiry,
+            bitSyncAction: 'recover', bitSyncStatus: 'routing_required', bitSyncMessage: '任务提交中'
+        });
+        if (typeof newlyActivatedId !== 'undefined') newlyActivatedId = String(id);
+        render();
         try {
-            const recoverTask = await createTask(record, 'recover', { targetExpiry });
-            if (taskIsPending(recoverTask)) await waitForTaskSuccess(recoverTask.id, 'recover');
-            await syncUsersV2();
-            const recovered = (db.users || []).find(row => String(row.id) === String(id));
-            if (!recovered || String(recovered.expiry || '') !== targetExpiry) {
-                throw new Error('云端尚未确认恢复结果。');
-            }
-            if (typeof recordOperationLog === 'function') recordOperationLog(recovered, 'renew', {
+            await createTask(record, 'recover', { targetExpiry, skipUserSync: true });
+            if (typeof recordOperationLog === 'function') recordOperationLog(record, 'renew', {
                 operatedAt: new Date().toISOString(), expiryBefore, expiryAfter: targetExpiry
             });
             render();
             if (typeof renderTrash === 'function') renderTrash();
             return true;
         } catch (error) {
+            rollbackLocal();
             alert('续费恢复失败：' + (error?.message || error));
             return false;
-        } finally {
-            showLoading(false);
+        }
+    }
+
+    async function cloudMoveUserToTrash(id, opts = {}) {
+        const record = (db.users || []).find(row => String(row.id) === String(id));
+        if (!record) return false;
+        if (typeof blockForWindowPayment === 'function' && blockForWindowPayment(record, '移入回收站')) return false;
+        if (typeof blockForWindowPayment !== 'function' && typeof activeWindowPaymentLock === 'function' && activeWindowPaymentLock(record)) {
+            alert('该员工号已有窗口付款订单进行中，完成或超时前不能移入回收站。');
+            return false;
+        }
+        if (!opts.skipConfirm && !(await showActionConfirm(`确定将“${record.username}”移入回收站？\n\n确认后将停用对应 BitBrowser 员工号。`, {
+            title: '移入回收站确认', confirmText: '确认移入', danger: true
+        }))) return false;
+        const rollbackLocal = optimisticBucketMove(record, 'trash', {
+            status: 'trash', bitSyncAction: 'disable',
+            bitSyncStatus: 'routing_required', bitSyncMessage: '任务提交中'
+        });
+        try {
+            await createTask(record, 'disable', { skipUserSync: true });
+            render();
+            if (typeof renderTrash === 'function') renderTrash();
+            return true;
+        } catch (error) {
+            rollbackLocal();
+            const message = typeof bitSetupMessage === 'function' ? bitSetupMessage(error) : (error?.message || error);
+            alert(`❌ ${record.username} 未能移入回收站：\n${message}\n\n任务提交失败，本次页面移动已回滚。`);
+            return false;
         }
     }
 
@@ -3782,6 +3854,7 @@ function showLoading(s, options = {}) {
                 }
             );
             if (!payment) return false;
+            let rollbackLocal = null;
             try {
                 const pricing = Array.isArray(payment.pricing)
                     ? payment.pricing.find(item => String(item.recordId) === String(id)) : null;
@@ -3792,11 +3865,17 @@ function showLoading(s, options = {}) {
                 const paidTargetExpiry = getRenewedExpiry({ expiry: paidExpiry });
                 record = await ensureTrashWindowQuota(id, plan.targetWindows);
                 const expiryBefore = String(record.expiry || '');
-                const recoverTask = await createTask(record, 'recover', { targetExpiry: paidTargetExpiry });
+                if (typeof newlyActivatedId !== 'undefined') newlyActivatedId = String(id);
+                rollbackLocal = optimisticBucketMove(record, 'users', {
+                    status: 'active', expiry: paidTargetExpiry,
+                    bitSyncAction: 'recover', bitSyncStatus: 'routing_required', bitSyncMessage: '任务提交中'
+                });
+                const recoverTask = await createTask(record, 'recover', { targetExpiry: paidTargetExpiry, skipUserSync: true });
                 await waitForTaskSuccess(recoverTask.id, 'recover');
                 await syncUsersV2();
                 const recovered = (db.users || []).find(row => String(row.id) === String(id));
                 if (!recovered || recovered.expiry !== paidTargetExpiry) throw new Error('云端尚未确认恢复和续期结果。');
+                rollbackLocal = null;
                 if (typeof recordOperationLog === 'function') recordOperationLog(recovered, 'renew', paidLogDetails(payment, {
                     operatedAt: new Date().toISOString(), expiryBefore, expiryAfter: paidTargetExpiry,
                     windowsBefore: plan.currentWindows, windows: plan.targetWindows, amount: formatMoneyCents(plan.amountCents)
@@ -3809,6 +3888,7 @@ function showLoading(s, options = {}) {
                 if (typeof renderTrash === 'function') renderTrash();
                 return completed !== false;
             } catch (error) {
+                if (rollbackLocal) rollbackLocal();
                 alert(`✅ 付款已确认，但套餐调整或续费恢复尚未完成：\n${error?.message || error}\n\n请不要再次付款，稍后点击续费继续原订单。订单号：${payment.orderNo}`);
                 return false;
             }
@@ -3822,6 +3902,7 @@ function showLoading(s, options = {}) {
         }))) return false;
         const payment = await requestPaidOperation('restore', [id], `${pageOwner()} · ${record.username} · ${record.windows}窗口续费`);
         if (!payment) return false;
+        let rollbackLocal = null;
         try {
             const paidExpiry = paymentExpiryFor(payment, id, record.expiry);
             const paidTargetExpiry = getRenewedExpiry({ expiry: paidExpiry });
@@ -3843,11 +3924,17 @@ function showLoading(s, options = {}) {
                 throw new Error('付款金额与当前月费不一致，请联系管理员并提供订单号：' + payment.orderNo);
             }
             const expiryBefore = String(record.expiry || '');
-            const recoverTask = await createTask(record, 'recover', { targetExpiry: paidTargetExpiry });
+            if (typeof newlyActivatedId !== 'undefined') newlyActivatedId = String(id);
+            rollbackLocal = optimisticBucketMove(record, 'users', {
+                status: 'active', expiry: paidTargetExpiry,
+                bitSyncAction: 'recover', bitSyncStatus: 'routing_required', bitSyncMessage: '任务提交中'
+            });
+            const recoverTask = await createTask(record, 'recover', { targetExpiry: paidTargetExpiry, skipUserSync: true });
             if (taskIsPending(recoverTask)) await waitForTaskSuccess(recoverTask.id, 'recover');
             await syncUsersV2();
             const recovered = (db.users || []).find(row => String(row.id) === String(id));
             if (!recovered || recovered.expiry !== paidTargetExpiry) throw new Error('云端尚未确认恢复结果。');
+            rollbackLocal = null;
             if (typeof recordOperationLog === 'function') recordOperationLog(recovered, 'renew', paidLogDetails(payment, {
                 operatedAt: new Date().toISOString(), expiryBefore, expiryAfter: paidTargetExpiry
             }));
@@ -3856,6 +3943,7 @@ function showLoading(s, options = {}) {
             if (typeof renderTrash === 'function') renderTrash();
             return completed !== false;
         } catch (error) {
+            if (rollbackLocal) rollbackLocal();
             alert(`✅ 付款已确认，但续费恢复尚未完成：\n${error?.message || error}\n\n请不要再次付款。订单号：${payment.orderNo}`);
             return false;
         }
@@ -3961,6 +4049,7 @@ function showLoading(s, options = {}) {
     }
 
     if (typeof quickRenew === 'function') globalThis.quickRenew = paidQuickRenew;
+    if (typeof moveUserToTrash === 'function') globalThis.moveUserToTrash = cloudMoveUserToTrash;
     if (typeof restore === 'function') {
         globalThis.restore = cloudRecoverFromTrash;
         if (typeof requestPaidOperation === 'function') globalThis.restore = paidRecoverFromTrash;
