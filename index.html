@@ -6,7 +6,7 @@
 <title>雪莲-用户管理系统</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script src="https://pay.bite5678.fun/payment/payment-client.js?v=20260910-v3"></script>
+<script src="https://pay.bite5678.fun/payment/payment-client.js?v=20260908-v2"></script>
 <script src="https://pay.bite5678.fun/payment/window-payment-flow.js?v=20260908-v2"></script>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -2759,7 +2759,7 @@ function showLoading(s, options = {}) {
 /* FRONTEND_V2_RUNTIME_START */
 (function installFrontendV2Runtime() {
     'use strict';
-    const schemaVersion = '2026-09-10.5';
+    const schemaVersion = '2026-09-20.1';
     const usersCursorKey = STORAGE_KEY + ':usersCursor';
     const tasksCursorKey = STORAGE_KEY + ':tasksCursor';
     const schemaKey = STORAGE_KEY + ':runtimeSchema';
@@ -3575,7 +3575,7 @@ function showLoading(s, options = {}) {
     globalThis.getRenewedExpiry = record => {
         const today = beijingDateString();
         const current = normalizedDate(record?.expiry);
-        const base = current && current > today ? current : today;
+        const base = current || today;
         const target = new Date(`${base}T00:00:00Z`);
         target.setUTCDate(target.getUTCDate() + 30);
         return target.toISOString().slice(0, 10);
@@ -3635,10 +3635,185 @@ function showLoading(s, options = {}) {
         }
     }
 
+    async function cloudRecoverFromTrash(id) {
+        if (!(await ensureCloudInitializedForAction())) return false;
+        const record = (db.trash || []).find(row => String(row.id) === String(id));
+        if (!record) return false;
+        const targetExpiry = getRenewedExpiry(record);
+        if (!(await showActionConfirm(`确定为“${record.username}”续费30天并恢复 BitBrowser 员工号？\n\n到期日：${record.expiry || '-'} → ${targetExpiry}`, {
+            title: '续费恢复确认', confirmText: '确认续费恢复'
+        }))) return false;
+        const expiryBefore = String(record.expiry || '');
+        showLoading(true, { blocking: false });
+        try {
+            const recoverTask = await createTask(record, 'recover', { targetExpiry });
+            if (taskIsPending(recoverTask)) await waitForTaskSuccess(recoverTask.id, 'recover');
+            await syncUsersV2();
+            const recovered = (db.users || []).find(row => String(row.id) === String(id));
+            if (!recovered || String(recovered.expiry || '') !== targetExpiry) {
+                throw new Error('云端尚未确认恢复结果。');
+            }
+            if (typeof recordOperationLog === 'function') recordOperationLog(recovered, 'renew', {
+                operatedAt: new Date().toISOString(), expiryBefore, expiryAfter: targetExpiry
+            });
+            render();
+            if (typeof renderTrash === 'function') renderTrash();
+            return true;
+        } catch (error) {
+            alert('续费恢复失败：' + (error?.message || error));
+            return false;
+        } finally {
+            showLoading(false);
+        }
+    }
+
+    async function stageTrashRenewalPlan(record, plan) {
+        const amount = formatMoneyCents(plan.amountCents);
+        if (Number(record.windows) === plan.targetWindows && String(record.amount) === amount) return record;
+        const data = await callRpc('save_user_changes_v2', {
+            p_user_id: String(record.id),
+            p_changes: { windows: plan.targetWindows, amount },
+            p_expected_updated_at: null
+        });
+        if (!data?.ok) throw new Error(taskErrorText(data?.code || 'SAVE_FAILED'));
+        if (data.user) applyUserRow(data.user);
+        baseSnapshot = snapshotMainData();
+        persistLocal();
+        const staged = (db.trash || []).find(row => String(row.id) === String(record.id));
+        if (!staged || Number(staged.windows) !== plan.targetWindows || recordMonthlyAmountCents(staged) !== plan.amountCents) {
+            throw new Error('新套餐未能保存到云端，请刷新后重试。');
+        }
+        return staged;
+    }
+
+    async function createTrashWindowQuotaTask(record, targetWindows) {
+        const intent = `${record.id}|${targetWindows}`;
+        const requestKey = STORAGE_KEY + ':trashWindowTask:' + encodeURIComponent(intent);
+        const requestId = localStorage.getItem(requestKey) || uuid();
+        localStorage.setItem(requestKey, requestId);
+        const data = await callRpc('create_trash_window_quota_task', {
+            p_source_record_id: String(record.id),
+            p_request_id: requestId,
+            p_target_window_count: targetWindows
+        });
+        if (!data?.ok) {
+            localStorage.removeItem(requestKey);
+            const error = new Error(taskErrorText(data?.code || 'TASK_CREATE_FAILED'));
+            error.code = data?.code || 'TASK_CREATE_FAILED';
+            throw error;
+        }
+        localStorage.removeItem(requestKey);
+        return rememberTask({
+            ...(data.task || {}),
+            sourceRecordId: String(record.id),
+            sourceOwner: String(record.owner || pageOwner()),
+            targetWindowCount: targetWindows,
+            updatedAt: new Date().toISOString()
+        });
+    }
+
+    async function waitForTaskSuccess(taskId, action, timeoutMs = 240000) {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+            await loadTasksV2();
+            const task = getTaskCache().find(row => String(row.id) === String(taskId));
+            const status = String(task?.status || '');
+            if (status === 'success') return task;
+            if (['needs_attention', 'cancelled', 'resolved'].includes(status)) {
+                throw new Error(`${BIT_ACTION_LABELS[action] || action}未完成：${task?.lastError || task?.resultCode || BIT_STATUS_LABELS[status] || status}`);
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        throw new Error(`${BIT_ACTION_LABELS[action] || action}仍在处理中，请稍后再次点击续费继续原订单。`);
+    }
+
+    async function ensureTrashWindowQuota(recordId, targetWindows) {
+        await Promise.all([syncUsersV2(), loadTasksV2()]);
+        let record = (db.trash || []).find(row => String(row.id) === String(recordId));
+        if (!record) throw new Error('改窗口前账号已不在回收站。');
+        if (Number(record.bitExistingWindows) > targetWindows) {
+            throw new Error(`当前已使用 ${record.bitExistingWindows} 个窗口，新套餐不能低于已使用窗口数。`);
+        }
+        if (Number(record.bitWindowQuota) === targetWindows) return record;
+
+        const activeStatuses = new Set(['routing_required', 'pending', 'processing', 'retry_wait', 'execution_succeeded', 'writeback_pending']);
+        let task = getTaskCache().find(row =>
+            String(row.sourceRecordId || row.source_record_id || '') === String(recordId) &&
+            String(row.action || '') === 'set_window_quota' &&
+            Number(row.targetWindowCount ?? row.target_window_count) === targetWindows &&
+            activeStatuses.has(String(row.status || ''))
+        );
+        if (!task) task = await createTrashWindowQuotaTask(record, targetWindows);
+        await waitForTaskSuccess(task.id, 'set_window_quota');
+        await syncUsersV2();
+        record = (db.trash || []).find(row => String(row.id) === String(recordId));
+        if (!record || Number(record.bitWindowQuota) !== targetWindows) {
+            throw new Error('联动任务已结束，但 BitBrowser 套餐额度尚未确认，请稍后重试。');
+        }
+        return record;
+    }
+
     async function paidRecoverFromTrash(id) {
         if (!(await ensureCloudInitializedForAction())) return false;
         let record = (db.trash || []).find(row => String(row.id) === String(id));
         if (!record) return false;
+
+        if (typeof promptTrashRenewalWindowPlan === 'function') {
+            await syncUsersV2();
+            record = (db.trash || []).find(row => String(row.id) === String(id));
+            if (!record) return false;
+            const plan = await promptTrashRenewalWindowPlan(record);
+            if (!plan) return false;
+            const renewalPrice = plan.amountCents / 100;
+            if (!(await showActionConfirm(`确定为“${record.username}”续费30天并恢复 BitBrowser 员工号？\n\n原套餐：${plan.currentWindows} 窗口\n续费套餐：${plan.targetWindows} 窗口\n当前已使用：${plan.usedWindows} 窗口\n需支付：¥${renewalPrice}`, {
+                title: '续费恢复确认', confirmText: '确认并支付'
+            }))) return false;
+            try {
+                record = await stageTrashRenewalPlan(record, plan);
+            } catch (error) {
+                alert(`新套餐保存失败：\n${error?.message || error}\n\n本次尚未创建付款订单。`);
+                return false;
+            }
+            const payment = await requestPaidOperation(
+                'restore', [id], `${pageOwner()} · ${record.username} · ${plan.targetWindows}窗口续费`,
+                {
+                    windowDelta: plan.targetWindows,
+                    pricingContext: `restore-plan:${plan.targetWindows}|${plan.amountCents}`
+                }
+            );
+            if (!payment) return false;
+            try {
+                const pricing = Array.isArray(payment.pricing)
+                    ? payment.pricing.find(item => String(item.recordId) === String(id)) : null;
+                if (!pricing || Number(pricing.windows) !== plan.targetWindows || Number(pricing.amountCents) !== plan.amountCents) {
+                    throw new Error('支付订单的套餐窗口数或金额与本次选择不一致。');
+                }
+                const paidExpiry = paymentExpiryFor(payment, id, record.expiry);
+                const paidTargetExpiry = getRenewedExpiry({ expiry: paidExpiry });
+                record = await ensureTrashWindowQuota(id, plan.targetWindows);
+                const expiryBefore = String(record.expiry || '');
+                const recoverTask = await createTask(record, 'recover', { targetExpiry: paidTargetExpiry });
+                await waitForTaskSuccess(recoverTask.id, 'recover');
+                await syncUsersV2();
+                const recovered = (db.users || []).find(row => String(row.id) === String(id));
+                if (!recovered || recovered.expiry !== paidTargetExpiry) throw new Error('云端尚未确认恢复和续期结果。');
+                if (typeof recordOperationLog === 'function') recordOperationLog(recovered, 'renew', paidLogDetails(payment, {
+                    operatedAt: new Date().toISOString(), expiryBefore, expiryAfter: paidTargetExpiry,
+                    windowsBefore: plan.currentWindows, windows: plan.targetWindows, amount: formatMoneyCents(plan.amountCents)
+                }));
+                const completed = await completePaidOperation(payment, {
+                    recordIds: [String(id)], action: 'restore', expiryAfter: paidTargetExpiry,
+                    targetWindows: plan.targetWindows
+                });
+                render();
+                if (typeof renderTrash === 'function') renderTrash();
+                return completed !== false;
+            } catch (error) {
+                alert(`✅ 付款已确认，但套餐调整或续费恢复尚未完成：\n${error?.message || error}\n\n请不要再次付款，稍后点击续费继续原订单。订单号：${payment.orderNo}`);
+                return false;
+            }
+        }
+
         const targetExpiry = getRenewedExpiry(record);
         let renewalPrice = validRenewalPriceOrAlert(record);
         if (renewalPrice === null) return false;
@@ -3668,7 +3843,8 @@ function showLoading(s, options = {}) {
                 throw new Error('付款金额与当前月费不一致，请联系管理员并提供订单号：' + payment.orderNo);
             }
             const expiryBefore = String(record.expiry || '');
-            await createTask(record, 'recover', { targetExpiry: paidTargetExpiry });
+            const recoverTask = await createTask(record, 'recover', { targetExpiry: paidTargetExpiry });
+            if (taskIsPending(recoverTask)) await waitForTaskSuccess(recoverTask.id, 'recover');
             await syncUsersV2();
             const recovered = (db.users || []).find(row => String(row.id) === String(id));
             if (!recovered || recovered.expiry !== paidTargetExpiry) throw new Error('云端尚未确认恢复结果。');
@@ -3785,8 +3961,13 @@ function showLoading(s, options = {}) {
     }
 
     if (typeof quickRenew === 'function') globalThis.quickRenew = paidQuickRenew;
-    if (typeof renewFromTrash === 'function' && typeof requestPaidOperation === 'function') {
-        globalThis.renewFromTrash = paidRecoverFromTrash;
+    if (typeof restore === 'function') {
+        globalThis.restore = cloudRecoverFromTrash;
+        if (typeof requestPaidOperation === 'function') globalThis.restore = paidRecoverFromTrash;
+    }
+    if (typeof renewFromTrash === 'function') {
+        globalThis.renewFromTrash = cloudRecoverFromTrash;
+        if (typeof requestPaidOperation === 'function') globalThis.renewFromTrash = paidRecoverFromTrash;
     }
     if (typeof batchRestoreTrash === 'function') globalThis.batchRestoreTrash = cloudBatchRestoreTrash;
 
