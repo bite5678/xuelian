@@ -133,7 +133,7 @@
   .operation-log-btn { border-color:var(--unused); color:#c4b5fd; min-width:104px; }
   .operation-modal { width:min(1180px, 96vw); max-height:90vh; display:flex; flex-direction:column; }
   .operation-log-list { overflow:auto; min-height:220px; border:1px solid var(--border); border-radius:6px; }
-  .operation-log-row { display:grid; grid-template-columns:145px 90px 85px 70px 75px 165px 105px 105px 110px; gap:9px; align-items:center; min-width:1040px; padding:10px 12px; border-bottom:1px solid var(--border); font-size:12px; line-height:1.35; }
+  .operation-log-row { display:grid; grid-template-columns:145px 90px 140px 70px 75px 165px 105px 105px 110px; gap:9px; align-items:center; min-width:1040px; padding:10px 12px; border-bottom:1px solid var(--border); font-size:12px; line-height:1.35; }
   .operation-log-row.operation-log-header { position:sticky; top:0; background:var(--surface2); color:#90ee90; z-index:1; }
   .operation-log-row > div:nth-child(3) { font-size:13px; }
   .loading-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: none; align-items: center; justify-content: center; color: var(--accent); font-weight: bold; }
@@ -183,7 +183,7 @@
 
 <header class="header">
   <div style="display:flex; align-items:center">
-    <div class="logo">雪莲 <span style="font-size:0.7em;opacity:0.75">v0.0.1</span></div>
+    <div class="logo">雪莲 <span style="font-size:0.7em;opacity:0.75">v0.0.2</span></div>
     <span class="sync-info" id="syncStatus">连接中...</span>
   </div>
   <div style="display:flex; gap:8px;">
@@ -310,12 +310,12 @@
     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px;">
       <div>
         <h3 style="font-size:17px; color:#c4b5fd;">📝 操作日志</h3>
-        <div style="font-size:12px; color:#fff; margin-top:5px;">仅记录从本功能上线后的激活和续费操作，不回填历史。</div>
+        <div style="font-size:12px; color:#fff; margin-top:5px;">记录本功能上线后的账号操作；历史操作不回填。</div>
       </div>
       <button class="btn btn-ghost" onclick="closeOperationLogModal()">关闭</button>
     </div>
     <div class="bit-job-toolbar">
-      <div class="bit-job-title">激活 / 续费 <span class="bit-job-count" id="operationLogSearchCount"></span></div>
+      <div class="bit-job-title">全部操作 <span class="bit-job-count" id="operationLogSearchCount"></span></div>
       <input type="text" id="operationLogSearchInput" class="bit-job-search" placeholder="🔍 搜索：员工号 / 操作 / 窗口 / 金额 / 日期..." autocomplete="off" oninput="renderOperationLogs()">
     </div>
     <div id="operationLogList" class="operation-log-list"></div>
@@ -323,7 +323,7 @@
 </div>
 
 <script>
-const SUPABASE_URL = 'https://xlmnfzocrlqvbzzrdshr.supabase.co';const APP_VERSION = '0.0.1'; // 🏷 版本号：改版本时递增（左上角显示） 
+const SUPABASE_URL = 'https://xlmnfzocrlqvbzzrdshr.supabase.co';const APP_VERSION = '0.0.2'; // 🏷 版本号：改版本时递增（左上角显示） 
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsbW5mem9jcmxxdmJ6enJkc2hyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5ODMyMjAsImV4cCI6MjA5MDU1OTIyMH0.Pvhl7JTz-FmOZ6J_aT8kBRve3ZrjOIIVVekr4jTZXUM';
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ── 流量测量上报（诊断用，挂一天看构成）──
@@ -433,7 +433,13 @@ const BIT_RESULT_LABELS = {
     cancelled_by_user:'用户已取消', resolved_by_newer_task:'已被较新任务解决',
     superseded_by_newer_task:'已被较新任务替代', window_quota_cancelled_by_delete:'删除员工号时已取消窗口数任务'
 };
-const OPERATION_ACTION_LABELS = { activate:'激活', renew:'续费', window_add:'增加窗口', window_reduce:'减少窗口', window_sync:'BitBrowser窗口同步', delete: '删除' };
+const OPERATION_ACTION_LABELS = {
+    activate: '激活', renew: '续费', rollback: '回退', trash: '删除（移入回收站）',
+    permanent_delete: '彻底删除', rename: '修改用户名', profile_edit: '修改资料',
+    edit_owner: '修改归属', edit_wechat: '修改微信', edit_xianyu: '修改咸鱼',
+    edit_active_time: '修改激活时间', edit_expiry: '修改到期日', edit_amount: '修改金额',
+    window_add: '增加窗口', window_reduce: '减少窗口', window_sync: 'BitBrowser窗口同步', delete: '删除'
+};
 
 let db = { users: [], unused: [], trash: [], bitTasks: [], bitConnectors: [], bitInventory: [], bitUsernameRegistry: [], operationLogs: [] };
 let currentFilter = 'all';
@@ -2759,7 +2765,7 @@ function showLoading(s, options = {}) {
 /* FRONTEND_V2_RUNTIME_START */
 (function installFrontendV2Runtime() {
     'use strict';
-    const schemaVersion = '2026-09-20.1';
+    const schemaVersion = '2026-09-21.1';
     const usersCursorKey = STORAGE_KEY + ':usersCursor';
     const tasksCursorKey = STORAGE_KEY + ':tasksCursor';
     const schemaKey = STORAGE_KEY + ':runtimeSchema';
@@ -2894,6 +2900,31 @@ function showLoading(s, options = {}) {
         payload.operationLogs = Array.isArray(db.operationLogs) ? db.operationLogs : [];
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     };
+    const operationAuditKeys = new Set();
+    const operationAuditKey = (record, action, details = {}) => {
+        const source = String(details.syncSource || details.paymentOrderNo || '');
+        return source ? `${String(record?.id || '')}|${String(action || '')}|${source}` : '';
+    };
+    const recordOperationAudit = (record, action, details = {}) => {
+        if (!record || typeof recordOperationLog !== 'function') return null;
+        const key = operationAuditKey(record, action, details);
+        const existingLogs = [
+            ...(Array.isArray(db.operationLogs) ? db.operationLogs : []),
+            ...(typeof _opLogCache !== 'undefined' && Array.isArray(_opLogCache) ? _opLogCache : [])
+        ];
+        const duplicate = key && (operationAuditKeys.has(key) || existingLogs.some(log =>
+            String(log?.sourceRecordId || log?.source_record_id || '') === String(record.id || '') &&
+            String(log?.action || '') === String(action || '') &&
+            (String(log?.syncSource || log?.sync_source || '') === String(details.syncSource || '') ||
+                (details.paymentOrderNo && String(log?.paymentOrderNo || log?.payment_order_no || '') === String(details.paymentOrderNo)))
+        ));
+        if (duplicate) return null;
+        const logged = recordOperationLog(record, action, details);
+        if (key) operationAuditKeys.add(key);
+        persistLocal();
+        return logged;
+    };
+    globalThis.recordOperationAudit = recordOperationAudit;
     const rpcErrorText = (error, data) => {
         const value = data && data.ok === false ? data.code : null;
         return String(value || error?.message || error?.details || error || 'UNKNOWN_ERROR');
@@ -3252,6 +3283,17 @@ function showLoading(s, options = {}) {
             newUsername: options.newUsername || '',
             updatedAt: new Date().toISOString()
         });
+        const taskAuditDetails = {
+            operatedAt: new Date().toISOString(),
+            syncSource: `bit_task:${String(task?.id || requestId)}`
+        };
+        if (action === 'disable') {
+            recordOperationAudit(record, 'trash', taskAuditDetails);
+        } else if (action === 'delete') {
+            recordOperationAudit(record, 'permanent_delete', taskAuditDetails);
+        } else if (action === 'rename') {
+            recordOperationAudit({ ...record, username: options.newUsername || record.username }, 'rename', taskAuditDetails);
+        }
         bitIntegrationAvailable = true;
         bitIntegrationMessage = data.reused ? '已确认现有任务，等待连接器处理' : '任务已写入云端，等待连接器处理';
         if (typeof refreshBitTaskBadge === 'function') refreshBitTaskBadge();
@@ -3339,12 +3381,11 @@ function showLoading(s, options = {}) {
                 p_expected_username: username
             });
             if (!data?.ok) throw new Error(taskErrorText(data?.code));
-            if (!data.alreadyConfirmed && typeof recordOperationLog === 'function') {
-                recordOperationLog(record, 'delete', {
+            if (!data.alreadyConfirmed) {
+                recordOperationAudit(record, 'permanent_delete', {
                     operatedAt: new Date().toISOString(),
-                    syncSource: 'manual_external_delete'
+                    syncSource: `bit_task:${String(task.id)}`
                 });
-                persistLocal();
             }
             await Promise.all([syncUsersV2(), loadTasksV2()]);
             render();
@@ -3431,7 +3472,12 @@ function showLoading(s, options = {}) {
             error.code = data?.code || 'ACTIVATION_ROLLBACK_FAILED';
             throw error;
         }
-        applyUserRow(data.user || { ...record, status: 'unused' });
+        const rolledBack = data.user || { ...record, status: 'unused' };
+        applyUserRow(rolledBack);
+        recordOperationAudit(record, 'rollback', {
+            operatedAt: new Date().toISOString(),
+            syncSource: `rollback_activation:${String(rolledBack.updated_at || rolledBack.updatedAt || record.updatedAt || '')}`
+        });
         baseSnapshot = snapshotMainData();
         persistLocal();
         return findRecord(record.id);
@@ -3957,6 +4003,7 @@ function showLoading(s, options = {}) {
             alert('部分账号已不在回收站，请刷新后重新选择。');
             return false;
         }
+        const selectedSnapshots = new Map(selected.map(record => [String(record.id), { ...record }]));
         const targets = new Map(selected.map(record => [String(record.id), getRenewedExpiry(record)]));
         let payment = null;
         if (typeof requestPaidOperation === 'function') {
@@ -3982,6 +4029,7 @@ function showLoading(s, options = {}) {
 
         const errors = [];
         const failedIds = new Set();
+        const createdTasks = new Map();
         const fail = (id, label, message) => {
             failedIds.add(String(id));
             errors.push(`${label || id}：${message}`);
@@ -4013,7 +4061,8 @@ function showLoading(s, options = {}) {
                     }
                 }
                 try {
-                    await createTask(record, 'recover', { targetExpiry });
+                    const task = await createTask(record, 'recover', { targetExpiry });
+                    createdTasks.set(id, task);
                 } catch (error) {
                     fail(id, record.username, error?.message || error);
                 }
@@ -4026,7 +4075,23 @@ function showLoading(s, options = {}) {
                 if (!active || String(active.expiry || '') !== targetExpiry) {
                     const label = active?.username || selected.find(row => String(row.id) === id)?.username || id;
                     fail(id, label, '云端尚未确认恢复结果');
+                    continue;
                 }
+                const original = selectedSnapshots.get(id);
+                const task = createdTasks.get(id);
+                if (!task && !payment) continue;
+                const auditDetails = {
+                    operatedAt: new Date().toISOString(),
+                    expiryBefore: String(original?.expiry || ''),
+                    expiryAfter: targetExpiry,
+                    syncSource: payment
+                        ? `payment:${String(payment.orderNo || payment.paymentOrderNo || '')}:${id}`
+                        : `bit_task:${String(task?.id || '')}`
+                };
+                const details = payment && typeof paidLogDetails === 'function'
+                    ? paidLogDetails(payment, auditDetails)
+                    : auditDetails;
+                recordOperationAudit(active, 'renew', details);
             }
             if (payment && !errors.length) {
                 const completed = await completePaidOperation(payment, {
@@ -4089,13 +4154,6 @@ function showLoading(s, options = {}) {
         showLoading(true, { blocking: false });
         try {
             await createTask(record, 'delete');
-            if (typeof recordOperationLog === 'function') {
-                recordOperationLog(record, 'delete', {
-                    operatedAt: new Date().toISOString(),
-                    syncSource: 'delete_task_created'
-                });
-                persistLocal();
-            }
             await syncUsersV2();
             render();
             if (typeof renderTrash === 'function') renderTrash();
@@ -4106,6 +4164,95 @@ function showLoading(s, options = {}) {
         } finally {
             showLoading(false);
         }
+    };
+
+    globalThis.rollbackTrashUser = async id => {
+        const index = (db.trash || []).findIndex(row => String(row.id) === String(id));
+        if (index < 0) return false;
+        const record = db.trash[index];
+        if (!(await showActionConfirm('确定将此记录回退到待激活名额？', { title: '回退确认', confirmText: '确认回退' }))) return false;
+        db.trash.splice(index, 1);
+        db.unused.push({
+            id: record.id,
+            status: 'unused',
+            owner: '-',
+            username: record.username,
+            password: record.password || (typeof DEFAULT_PWD !== 'undefined' ? DEFAULT_PWD : ''),
+            windows: String(record.windows || (typeof DEFAULT_WINDOWS !== 'undefined' ? DEFAULT_WINDOWS : 100)),
+            _dirty: true
+        });
+        recordOperationAudit(record, 'rollback', {
+            operatedAt: new Date().toISOString(),
+            syncSource: `trash_rollback:${String(record.updatedAt || record.updated_at || Date.now())}`
+        });
+        saveToCloud();
+        if (typeof renderTrash === 'function') renderTrash();
+        render();
+        return true;
+    };
+
+    globalThis.batchRollbackTrash = async () => {
+        const ids = Array.from(document.querySelectorAll('.trash-cb:checked')).map(node => String(node.value));
+        if (!ids.length) return false;
+        if (!(await showActionConfirm(`确定将选中的 ${ids.length} 项回退到待激活名额？`, { title: '批量回退确认', confirmText: '确认回退' }))) return false;
+        const operatedAt = new Date().toISOString();
+        const selectedIds = new Set(ids);
+        const moved = [];
+        db.trash = (db.trash || []).filter(record => {
+            if (!selectedIds.has(String(record.id))) return true;
+            moved.push(record);
+            db.unused.push({
+                id: record.id,
+                status: 'unused',
+                owner: '-',
+                username: record.username,
+                password: record.password || (typeof DEFAULT_PWD !== 'undefined' ? DEFAULT_PWD : ''),
+                windows: String(record.windows || (typeof DEFAULT_WINDOWS !== 'undefined' ? DEFAULT_WINDOWS : 100)),
+                _dirty: true
+            });
+            return false;
+        });
+        for (const record of moved) {
+            recordOperationAudit(record, 'rollback', {
+                operatedAt,
+                syncSource: `trash_rollback:${String(record.updatedAt || record.updated_at || operatedAt)}`
+            });
+        }
+        saveToCloud();
+        if (typeof renderTrash === 'function') renderTrash();
+        render();
+        return moved.length > 0;
+    };
+
+    globalThis.batchDeleteTrash = async () => {
+        const ids = Array.from(document.querySelectorAll('.trash-cb:checked')).map(node => String(node.value));
+        if (!ids.length) return false;
+        if (!(await showActionConfirm(`确定彻底删除选中的 ${ids.length} 项？`, {
+            title: '批量彻底删除', confirmText: '确认删除', danger: true
+        }))) return false;
+        const errors = [];
+        showLoading(true, { blocking: false });
+        try {
+            for (const id of ids) {
+                const record = (db.trash || []).find(row => String(row.id) === id);
+                if (!record) continue;
+                try {
+                    await createTask(record, 'delete', { skipUserSync: true });
+                } catch (error) {
+                    errors.push(`${record.username || id}：${error?.message || error}`);
+                }
+            }
+            await syncUsersV2();
+            render();
+            if (typeof renderTrash === 'function') renderTrash();
+        } finally {
+            showLoading(false);
+        }
+        if (errors.length) {
+            alert(`有 ${errors.length} 个删除任务未创建，记录已保留：\n\n${errors.join('\n')}`);
+            return false;
+        }
+        return true;
     };
 
     // The legacy pages install their own 10/30 second task timers.  Keep their
