@@ -183,7 +183,7 @@
 
 <header class="header">
   <div style="display:flex; align-items:center">
-    <div class="logo">雪莲 <span style="font-size:0.7em;opacity:0.75">v0.0.2</span></div>
+    <div class="logo">雪莲 <span style="font-size:0.7em;opacity:0.75">v0.0.3</span></div>
     <span class="sync-info" id="syncStatus">连接中...</span>
   </div>
   <div style="display:flex; gap:8px;">
@@ -323,57 +323,11 @@
 </div>
 
 <script>
-const SUPABASE_URL = 'https://xlmnfzocrlqvbzzrdshr.supabase.co';const APP_VERSION = '0.0.2'; // 🏷 版本号：改版本时递增（左上角显示） 
+const SUPABASE_URL = 'https://xlmnfzocrlqvbzzrdshr.supabase.co';const APP_VERSION = '0.0.3'; // 🏷 版本号：改版本时递增（左上角显示） 
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsbW5mem9jcmxxdmJ6enJkc2hyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5ODMyMjAsImV4cCI6MjA5MDU1OTIyMH0.Pvhl7JTz-FmOZ6J_aT8kBRve3ZrjOIIVVekr4jTZXUM';
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-// ── 流量测量上报（诊断用，挂一天看构成）──
-function getTrafficSource() {
-    return (typeof TARGET_ORG !== 'undefined' && TARGET_ORG) ? TARGET_ORG
-        : (typeof DEFAULT_OWNER !== 'undefined' && DEFAULT_OWNER) ? DEFAULT_OWNER : 'master';
-}
-let _trafficBuf = {};
-let _trafficTimer = null;
-function trafficAccum(kind, bytes) {
-    const b = Math.max(0, Number(bytes) || 0);
-    _trafficBuf[kind] = (_trafficBuf[kind] || 0) + b;
-}
-async function trafficFlush() {
-    const buf = _trafficBuf;
-    _trafficBuf = {};
-    if (!Object.keys(buf).length) return;
-    if (typeof supabaseClient === 'undefined' || !supabaseClient) return;
-    const day = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
-    try {
-        for (const kind of Object.keys(buf)) {
-            const bytes = buf[kind];
-            if (!bytes) continue;
-            const { error } = await supabaseClient.from('traffic_usage')
-                .insert({ source: getTrafficSource(), kind, bytes, hits: 1, day });
-            if (error) console.warn('[traffic] 上报失败:', error.message);
-        }
-    } catch (e) { /* 静默 */ }
-}
-function trackTraffic(type, action, bytes = 0) {
-    if (type === 'mainData') {
-        if (action === 'version_read') trafficAccum('mainData_version_read', bytes || 200);
-        if (action === 'content_read') trafficAccum('mainData_content_read', bytes);
-        if (action === 'write') trafficAccum('mainData_write', bytes);
-    } else if (type === 'task') {
-        if (action === 'read') trafficAccum('task_read', bytes);
-        if (action === 'write') trafficAccum('task_write', bytes);
-    } else if (type === 'heartbeat') {
-        if (action === 'read') trafficAccum('heartbeat_read', bytes);
-    } else if (type === 'oplog') {
-        if (action === 'read') trafficAccum('oplog_read', bytes);
-        if (action === 'write') trafficAccum('oplog_write', bytes);
-    }
-}
-function trafficStart() {
-    if (_trafficTimer) return;
-    _trafficTimer = setInterval(trafficFlush, 60000);
-    window.addEventListener('pagehide', trafficFlush);
-}
-trafficStart();
+// 兼容既有调用，只在本地忽略诊断计数，不再写回 Supabase。
+function trackTraffic() {}
 const STORAGE_KEY = 'uf_v45_db:xuelian';
 const ROW_ID = 1; 
 
@@ -415,7 +369,7 @@ function validRenewalPriceOrAlert(record) {
     }
     return cents / 100;
 }
-const BIT_CONNECTOR_OFFLINE_MS = 60000;
+const BIT_CONNECTOR_OFFLINE_MS = 150000;
 const BIT_CONNECTOR_RETENTION_MS = 24 * 60 * 60 * 1000;
 const BIT_CONNECTOR_PRUNABLE_TASK_STATUSES = new Set(['routing_required', 'pending', 'processing', 'retry_wait', 'execution_succeeded', 'writeback_pending', 'needs_attention']);
 const BIT_WINDOW_QUOTA_ACTION = 'set_window_quota';
@@ -4292,7 +4246,7 @@ function showLoading(s, options = {}) {
         if (document.visibilityState !== 'visible') return;
         const now = Date.now();
         const hasActiveTask = getTaskCache().some(taskIsPending);
-        if (now - lastTaskPollAt < (hasActiveTask ? 10000 : 30000)) return;
+        if (now - lastTaskPollAt < (hasActiveTask ? 10000 : 60000)) return;
         lastTaskPollAt = now;
         loadTasksV2().then(() => renderBitIntegration()).catch(error => {
             console.warn('[v2 tasks] background poll failed:', error.message || error);
